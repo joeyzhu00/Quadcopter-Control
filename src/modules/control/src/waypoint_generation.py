@@ -20,7 +20,11 @@ PI = 3.14159
 # in the order of [x_pos, y_pos, z_pos, yaw_angle] in [m, m, m, rad]
 desiredPos = np.array([[0, 0, 0, 0],   
                        [1, 2, 5, 0],
-                       [3, 6, 10, 0]])
+                       [4, 5, 8, 0],
+                       [3, 6, 10, PI/2]])
+
+# desiredPos = np.array([[0, 0, 0, 0],   
+#                        [3, 6, 10, PI/2]])
 
 desiredVel = np.array([[0, 0, 0, 0],
                        [0, 0, 0, 0]])
@@ -28,78 +32,141 @@ desiredVel = np.array([[0, 0, 0, 0],
 desiredAcc = np.array([[0, 0, 0, 0],
                        [0, 0, 0, 0]])
 
-desiredTimes = np.array([0, 10, 20])
+desiredTimes = np.array([0, 10, 20, 40])
 
 for i in range(0, 4):
     # find the shape of the desiredPos array (equivalent to size() in Matlab)
-    arrayShape = np.shape(desiredPos)
-    # # need to use loop to take out each element separately
-    # for k in range(0, arrayShape[0]):
-    #     if k == 0:
-    #         desiredKinematics = 
-    # desiredKinematics = np.array([[desiredPos[:,i]],
-    #                               [desiredVel[:,i]],
-    #                               [desiredAcc[:,i]]])
+    arrayShape = np.shape(desiredPos)    
     tempKinematics = desiredPos[:,i]
     tempKinematics = np.append(tempKinematics, desiredVel[:,i], axis = 0)
     tempKinematics = np.append(tempKinematics, desiredAcc[:,i], axis = 0)
-
-    desiredKinematics = np.zeros((np.size(tempKinematics), 1))
-    print(desiredKinematics)
+    # use loop to take out each element separately in tempKinematics
+    desiredKinematics = np.zeros((np.size(tempKinematics), 1))    
     for k in range(0, np.size(tempKinematics)):
         desiredKinematics[k][0] = tempKinematics[k]
 
-    print(desiredKinematics)    
-    # just the coefficients mapping the initial and final desired positions for now 
-    # TODO: Fix the incorrect mapping for positions
-    coeffMapMatrix = np.array([[1, 0, 0, 0, 0, 0],
-                               [1, desiredTimes[-1], pow(desiredTimes[-1], 2), pow(desiredTimes[-1], 3), pow(desiredTimes[-1], 4), pow(desiredTimes[-1], 5)]])
+    # just the mapping coefficients mapping the initial position
+    coeffMapMatrix = np.array([[1, 0, 0, 0, 0, 0]])                               
+    # insert the mapping coefficients for intermediate points
     if arrayShape[0] > 2:
         for j in range(1, np.size(desiredTimes)-1):
             temp = [[1, desiredTimes[j], pow(desiredTimes[j], 2), pow(desiredTimes[j], 3), pow(desiredTimes[j], 4), pow(desiredTimes[j], 5)]]
-            # print(temp)
-            # print(coeffMapMatrix)
             coeffMapMatrix = np.append(coeffMapMatrix, temp, axis = 0)
-
-            # print(coeffMapMatrix)
-    
+    # add the final desired position
+    coeffMapMatrix = np.append(coeffMapMatrix, [[1, desiredTimes[-1], pow(desiredTimes[-1], 2), pow(desiredTimes[-1], 3), pow(desiredTimes[-1], 4), pow(desiredTimes[-1], 5)]], axis = 0)
     # add the velocity and acceleration terms
     temp2 = [[0, 1, 0, 0, 0, 0],
              [0, 1, 2*desiredTimes[-1], 3*pow(desiredTimes[-1], 2), 4*pow(desiredTimes[-1], 3), 5*pow(desiredTimes[-1], 4)],
              [0, 0, 2, 0, 0, 0],
              [0, 0, 2, 6*desiredTimes[-1], 12*pow(desiredTimes[-1], 2), 20*pow(desiredTimes[-1], 3)]]
-    # print(temp2)
     coeffMapMatrix = np.append(coeffMapMatrix, temp2, axis = 0)
-    # print(coeffMapMatrix)
+
+    # perform the mapping from desired points to coefficients for sub-optimal minimum jerk waypoints
     if i == 0:
         coeffVector = np.dot(np.linalg.pinv(coeffMapMatrix), desiredKinematics)
     else:
         coeffVector = np.append(coeffVector, np.dot(np.linalg.pinv(coeffMapMatrix), desiredKinematics), axis = 1)
-    
-    print(coeffVector)
 
-fig = plt.figure()
-ax = plt.axes(projection = '3d')
-ax.plot3D(desiredPos[:,0], desiredPos[:,1], desiredPos[:,2], 'ro')
+# plot the waypoints    
+figPos = plt.figure()
+axPos = plt.axes(projection = '3d')
+axPos.plot3D(desiredPos[:,0], desiredPos[:,1], desiredPos[:,2], 'ro')
 # create time vector
 timeVec = np.linspace(desiredTimes[0], desiredTimes[-1], num = 200)
-waypoints = np.zeros((200,4))
+waypoints = np.zeros((np.size(timeVec),4))
+desVel = np.zeros((np.size(timeVec),4))
+desAcc = np.zeros((np.size(timeVec),4))
+
 for i in range(0, 4):
+    # position waypoints
     for j in range(0, 6):
         if j == 0:
             waypoints[:,i] = coeffVector[j][i]
         else:
             waypoints[:,i] = waypoints[:,i] + coeffVector[j][i]*np.power(timeVec, j)
+    # velocity waypoints
+    for j in range(1, 6):
+        if j == 1:
+            desVel[:,i] = coeffVector[j][i]
+        else:
+            # don't need extra variable for multiplication factor when taking derivative of the position waypoints equation can just use j
+            desVel[:,i] = desVel[:,i] + j*coeffVector[j][i]*np.power(timeVec, j-1)
+    # acceleration waypoints
+    for j in range(2, 6):
+        if j == 2:
+            desAcc[:,i] = 2*coeffVector[j][i]
+        else:
+            # taking derivative of velocity waypoints equation for desired acceleration
+            if j == 3:
+                multFactor = 6
+            elif j == 4:
+                multFactor = 12
+            elif j == 5:
+                multFactor = 20
+            desAcc[:,i] = desAcc[:,i] + multFactor*coeffVector[j][i]*np.power(timeVec, j-2)
 
-    # if i == 0:
-    #     # xPosWaypoints = coeffVector[0][i] + coeffVector[1][i]*timeVec + coeffVector[2][i]*np.power(timeVec, 2) + coeffVector[3][i]*np.power(timeVec, 3) + 
+pnt3d = axPos.scatter(waypoints[:,0], waypoints[:,1], waypoints[:,2], c = timeVec)
+cbar = plt.colorbar(pnt3d)
+cbar.set_label("Time [sec]")
+# label the axes and give title
+axPos.set_xlabel('X-Axis [m]')
+axPos.set_ylabel('Y-Axis [m]')
+axPos.set_zlabel('Z-Axis [m]')
+axPos.set_title('Sub-Optimal Minimum Jerk Position Waypoints')
 
-    # elif i == 1:
-    # elif i == 2:
-    # elif i == 3:
-print(np.shape(waypoints))
-ax.plot3D(waypoints[:,0], waypoints[:,1], waypoints[:,2])
-print(waypoints)
+# plot the desired kinematics
+figOtherKinematics = plt.figure()
+figOtherKinematics.suptitle('Desired Kinematics in Inertial Frame')
+# desired position waypoints
+axPos = plt.subplot(311)
+axPos.plot(timeVec, waypoints[:,0], '-r', label = '$x_b$')
+axPos.plot(timeVec, waypoints[:,1], '-k', label = '$y_b$')
+axPos.plot(timeVec, waypoints[:,2], '-b', label = '$z_b$')
+# add the yaw legend
+axPos.plot(np.nan, '.-g', label = 'yaw')
+axPos.legend(loc = 0)
+plt.grid()
+plt.xlabel('Time [sec]')
+plt.ylabel('Position [m]')
+# plt.title('Desired Position in Inertial Frame')
+# desired yaw
+axYaw = axPos.twinx()
+axYaw.plot(timeVec, waypoints[:,3], '.-g')
+axYaw.set_ylabel('Yaw [rad]')
+
+# desired velocity waypoints
+axVel = plt.subplot(312)
+axVel.plot(timeVec, desVel[:,0], '-r', label = '$v_{x,b}$')
+axVel.plot(timeVec, desVel[:,1], '-k', label = '$v_{y,b}$')
+axVel.plot(timeVec, desVel[:,2], '-b', label = '$v_{z,b}$')
+# add the yaw legend
+axVel.plot(np.nan, '.-g', label = '$yaw_{rate}$')
+axVel.legend(loc = 0)
+plt.grid()
+plt.xlabel('Time [sec]')
+plt.ylabel('Velocity [m/s]')
+# plt.title('Desired Velocity in Inertial Frame')
+# desired yaw
+axYawRate = axVel.twinx()
+axYawRate.plot(timeVec, desVel[:,3], '.-g')
+axYawRate.set_ylabel('Yaw [rad/s]')
+
+# desired acceleration waypoints
+axAcc = plt.subplot(313)
+axAcc.plot(timeVec, desAcc[:,0], '-r', label = '$a_{x,b}$')
+axAcc.plot(timeVec, desAcc[:,1], '-k', label = '$a_{y,b}$')
+axAcc.plot(timeVec, desAcc[:,2], '-b', label = '$a_{z,b}$')
+# add the yaw legend
+axAcc.plot(np.nan, '.-g', label = '$yaw_{acc}$')
+axAcc.legend(loc = 0)
+plt.grid()
+plt.xlabel('Time [sec]')
+plt.ylabel('Acceleration [$m/s^2$]')
+# plt.title('Desired Acceleration in Inertial Frame')
+# desired yaw
+axYawRate = axAcc.twinx()
+axYawRate.plot(timeVec, desAcc[:,3], '.-g')
+axYawRate.set_ylabel('Yaw [$ad/s^2$]')
 plt.show()
 
 
