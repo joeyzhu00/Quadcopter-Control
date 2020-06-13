@@ -23,13 +23,14 @@ desiredPos = np.array([[0, 0, 0, 0],
 #                     [3, 6, 10, PI/2]])
 
 desiredVel = np.array([[0, 0, 0, 0],
-                    [0, 0, 0, 0]])
+                       [0, 0, 0, 0]])
 
 desiredAcc = np.array([[0, 0, 0, 0],
-                    [0, 0, 0, 0]])
+                       [0, 0, 0, 0]])
 
 desiredTimes = np.array([0, 10, 20, 40])
 # desiredTimes = np.array([0, 20])
+
 
 def waypoint_calculation(desiredPos, desiredVel, desiredAcc, desiredTimes):
     for i in range(0, 4):
@@ -63,7 +64,7 @@ def waypoint_calculation(desiredPos, desiredVel, desiredAcc, desiredTimes):
         if i == 0:
             coeffVector = np.dot(np.linalg.pinv(coeffMapMatrix), desiredKinematics)
         else:
-            coeffVector = np.append(coeffVector, np.dot(np.linalg.pinv(coeffMapMatrix), desiredKinematics), axis = 1)
+            coeffVector = np.append(coeffVector, np.dot(np.linalg.pinv(coeffMapMatrix), desiredKinematics), axis = 1)    
 
     # create time vector
     timeVec = np.linspace(desiredTimes[0], desiredTimes[-1], num = 200)
@@ -71,24 +72,21 @@ def waypoint_calculation(desiredPos, desiredVel, desiredAcc, desiredTimes):
     desVel = np.zeros((np.size(timeVec),4))
     desAcc = np.zeros((np.size(timeVec),4))
 
+    # calculate the velocity and acceleration for the second to last waypoint
+    secondLastVel = np.zeros((1,4))
+    secondLastAcc = np.zeros((1,4))
     for i in range(0, 4):
-        # position waypoints
-        for j in range(0, 6):
-            if j == 0:
-                waypoints[:,i] = coeffVector[j][i]
-            else:
-                waypoints[:,i] = waypoints[:,i] + coeffVector[j][i]*np.power(timeVec, j)
         # velocity waypoints
         for j in range(1, 6):
             if j == 1:
-                desVel[:,i] = coeffVector[j][i]
+                secondLastVel[0][i] = coeffVector[j][i]
             else:
                 # don't need extra variable for multiplication factor when taking derivative of the position waypoints equation can just use j
-                desVel[:,i] = desVel[:,i] + j*coeffVector[j][i]*np.power(timeVec, j-1)
+                secondLastVel[0][i] = secondLastVel[0][i] + j*coeffVector[j][i]*np.power(desiredTimes[np.size(desiredTimes)-2], j-1)
         # acceleration waypoints
         for j in range(2, 6):
             if j == 2:
-                desAcc[:,i] = 2*coeffVector[j][i]
+                secondLastAcc[0][i] = 2*coeffVector[j][i]
             else:
                 # taking derivative of velocity waypoints equation for desired acceleration
                 if j == 3:
@@ -97,15 +95,75 @@ def waypoint_calculation(desiredPos, desiredVel, desiredAcc, desiredTimes):
                     multFactor = 12
                 elif j == 5:
                     multFactor = 20
-                desAcc[:,i] = desAcc[:,i] + multFactor*coeffVector[j][i]*np.power(timeVec, j-2)
-        
+                secondLastAcc[0][i] = secondLastAcc[0][i] + multFactor*coeffVector[j][i]*np.power(desiredTimes[np.size(desiredTimes)-2], j-2)
     
+    # take the desired vel and accel from the 2nd to last waypoint and use as initial conditions for optimal min jerk trajectory
+    # 2nd to last point index        
+    minDesiredPos = np.array([desiredPos[np.size(desiredTimes)-2,:],
+                              desiredPos[np.size(desiredTimes)-1,:]])
+    minDesiredVel = np.concatenate((secondLastVel, np.array([[desiredVel[1,0], desiredVel[1,1], desiredVel[1,2], desiredVel[1,3]]])), axis = 0)
+    minDesiredAcc = np.concatenate((secondLastAcc, np.array([[desiredAcc[1,0], desiredAcc[1,1], desiredAcc[1,2], desiredAcc[1,3]]])), axis = 0)
+    timeDiff = desiredTimes[-1] - desiredTimes[np.size(desiredTimes)-2]
+    
+    lastPtsCoeffMapMatrix = np.array([[1, 0, 0, 0, 0, 0],
+                                      [1, timeDiff, pow(timeDiff, 2), pow(timeDiff, 3), pow(timeDiff, 4), pow(timeDiff, 5)],
+                                      [0, 1, 0, 0, 0, 0],
+                                      [0, 1, 2*timeDiff, 3*pow(timeDiff, 2), 4*pow(timeDiff, 3), 5*pow(timeDiff, 4)],
+                                      [0, 0, 2, 0, 0, 0],
+                                      [0, 0, 2, 6*timeDiff, 12*pow(timeDiff, 2), 20*pow(timeDiff, 3)]])
+    for n in range(0, 4):
+        desiredKinematics = np.array([minDesiredPos[:,n]]).T
+        desiredKinematics = np.append(desiredKinematics, np.array([minDesiredVel[:,n]]).T, axis = 0)
+        desiredKinematics = np.append(desiredKinematics, np.array([minDesiredAcc[:,n]]).T, axis = 0)
+        # perform the mapping from desired points to coefficients for optimal minimum jerk waypoints on last two points
+        if n == 0:
+            coeffVector2 = np.dot(np.linalg.inv(lastPtsCoeffMapMatrix), desiredKinematics)
+        else:
+            coeffVector2 = np.append(coeffVector2, np.dot(np.linalg.inv(lastPtsCoeffMapMatrix), desiredKinematics), axis = 1) 
+
+    indexShift = np.where(timeVec == desiredTimes[np.size(desiredTimes)-2])
+    for i in range(0, 4):
+        for m in range(0, np.size(timeVec)):
+            # if timeVec[m] <= desiredTimes[np.size(desiredTimes)-2]:
+            if timeVec[m] <= 20.12:
+                coeffVectorApp = coeffVector
+                indexShift = 0
+            else:
+                coeffVectorApp = coeffVector2
+                # indexShift = np.where(timeVec == desiredTimes[np.size(desiredTimes)-2])
+                indexShift = 101
+            # position waypoints
+            for j in range(0, 6):
+                if j == 0:
+                    waypoints[m,i] = coeffVectorApp[j][i]
+                else:
+                    waypoints[m,i] = waypoints[m,i] + coeffVectorApp[j][i]*pow(timeVec[m - indexShift], j)
+            # velocity waypoints
+            for j in range(1, 6):
+                if j == 1:
+                    desVel[m,i] = coeffVectorApp[j][i]
+                else:
+                    # don't need extra variable for multiplication factor when taking derivative of the position waypoints equation can just use j
+                    desVel[m,i] = desVel[m,i] + j*coeffVectorApp[j][i]*pow(timeVec[m - indexShift], j-1)
+            # acceleration waypoints
+            for j in range(2, 6):
+                if j == 2:
+                    desAcc[m,i] = 2*coeffVectorApp[j][i]
+                else:
+                    # taking derivative of velocity waypoints equation for desired acceleration
+                    if j == 3:
+                        multFactor = 6
+                    elif j == 4:
+                        multFactor = 12
+                    elif j == 5:
+                        multFactor = 20
+                    desAcc[m,i] = desAcc[m,i] + multFactor*coeffVectorApp[j][i]*pow(timeVec[m - indexShift], j-2)
+
     return waypoints, desVel, desAcc, timeVec
 
 # have plots been made?
 plotState = False
 waypoints, desVel, desAcc, timeVec = waypoint_calculation(desiredPos, desiredVel, desiredAcc, desiredTimes)
-
 # plot the waypoints    
 figPos = plt.figure()
 axPos = plt.axes(projection = '3d')
