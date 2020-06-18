@@ -28,11 +28,24 @@ desiredVel = np.array([[0, 0, 0, 0],
 desiredAcc = np.array([[0, 0, 0, 0],
                        [0, 0, 0, 0]])
 
-desiredTimes = np.array([0, 10, 20, 40])
+desiredTimes = np.array([0, 10, 20, 35])
 # desiredTimes = np.array([0, 20])
 
+def lin_interpolation(desiredTimes, numPtsBtTimes):
+    """Linear interpolation between each point fed into the function with the given number of points in between"""
+    timeVec = []
+    numDesiredTimes = np.size(desiredTimes)
+    for i in range(np.size(desiredTimes)-1):
+        for j in range(numPtsBtTimes):
+            timeVec.append(desiredTimes[i] + (desiredTimes[i+1] - desiredTimes[i])*(j/numPtsBtTimes))
+    timeVec.append(desiredTimes[i+1])
+    return timeVec
+
+testLinInterp = np.array(lin_interpolation(desiredTimes, 100))
 
 def waypoint_calculation(desiredPos, desiredVel, desiredAcc, desiredTimes):
+    """Calculate a sub-optimal minimum jerk trajectory and replace the trajectory between the second to last point and the
+       last point with an optimal minimum jerk trajectory"""
     for i in range(0, 4):
         # find the shape of the desiredPos array (equivalent to size() in Matlab)
         arrayShape = np.shape(desiredPos)    
@@ -67,7 +80,7 @@ def waypoint_calculation(desiredPos, desiredVel, desiredAcc, desiredTimes):
             coeffVector = np.append(coeffVector, np.dot(np.linalg.pinv(coeffMapMatrix), desiredKinematics), axis = 1)    
 
     # create time vector
-    timeVec = np.linspace(desiredTimes[0], desiredTimes[-1], num = 200)
+    timeVec = np.array(lin_interpolation(desiredTimes, 50))
     waypoints = np.zeros((np.size(timeVec),4))
     desVel = np.zeros((np.size(timeVec),4))
     desAcc = np.zeros((np.size(timeVec),4))
@@ -104,7 +117,7 @@ def waypoint_calculation(desiredPos, desiredVel, desiredAcc, desiredTimes):
     minDesiredVel = np.concatenate((secondLastVel, np.array([[desiredVel[1,0], desiredVel[1,1], desiredVel[1,2], desiredVel[1,3]]])), axis = 0)
     minDesiredAcc = np.concatenate((secondLastAcc, np.array([[desiredAcc[1,0], desiredAcc[1,1], desiredAcc[1,2], desiredAcc[1,3]]])), axis = 0)
     timeDiff = desiredTimes[-1] - desiredTimes[np.size(desiredTimes)-2]
-    
+    # min jerk coefficients mapping matrix
     lastPtsCoeffMapMatrix = np.array([[1, 0, 0, 0, 0, 0],
                                       [1, timeDiff, pow(timeDiff, 2), pow(timeDiff, 3), pow(timeDiff, 4), pow(timeDiff, 5)],
                                       [0, 1, 0, 0, 0, 0],
@@ -112,6 +125,7 @@ def waypoint_calculation(desiredPos, desiredVel, desiredAcc, desiredTimes):
                                       [0, 0, 2, 0, 0, 0],
                                       [0, 0, 2, 6*timeDiff, 12*pow(timeDiff, 2), 20*pow(timeDiff, 3)]])
     for n in range(0, 4):
+        # python is being dumb
         desiredKinematics = np.array([minDesiredPos[:,n]]).T
         desiredKinematics = np.append(desiredKinematics, np.array([minDesiredVel[:,n]]).T, axis = 0)
         desiredKinematics = np.append(desiredKinematics, np.array([minDesiredAcc[:,n]]).T, axis = 0)
@@ -120,31 +134,28 @@ def waypoint_calculation(desiredPos, desiredVel, desiredAcc, desiredTimes):
             coeffVector2 = np.dot(np.linalg.inv(lastPtsCoeffMapMatrix), desiredKinematics)
         else:
             coeffVector2 = np.append(coeffVector2, np.dot(np.linalg.inv(lastPtsCoeffMapMatrix), desiredKinematics), axis = 1) 
-
-    indexShift = np.where(timeVec == desiredTimes[np.size(desiredTimes)-2])
     for i in range(0, 4):
         for m in range(0, np.size(timeVec)):
-            # if timeVec[m] <= desiredTimes[np.size(desiredTimes)-2]:
-            if timeVec[m] <= 20.12:
+            if timeVec[m] <= desiredTimes[np.size(desiredTimes)-2]:
                 coeffVectorApp = coeffVector
                 indexShift = 0
             else:
                 coeffVectorApp = coeffVector2
-                # indexShift = np.where(timeVec == desiredTimes[np.size(desiredTimes)-2])
-                indexShift = 101
+                indexShift = np.where(timeVec == desiredTimes[np.size(desiredTimes)-2])
+                indexShift = int(indexShift[0])
             # position waypoints
             for j in range(0, 6):
                 if j == 0:
                     waypoints[m,i] = coeffVectorApp[j][i]
-                else:
-                    waypoints[m,i] = waypoints[m,i] + coeffVectorApp[j][i]*pow(timeVec[m - indexShift], j)
+                else:                    
+                    waypoints[m,i] = waypoints[m,i] + coeffVectorApp[j][i]*pow(timeVec[m] - timeVec[indexShift], j)
             # velocity waypoints
             for j in range(1, 6):
                 if j == 1:
                     desVel[m,i] = coeffVectorApp[j][i]
                 else:
                     # don't need extra variable for multiplication factor when taking derivative of the position waypoints equation can just use j
-                    desVel[m,i] = desVel[m,i] + j*coeffVectorApp[j][i]*pow(timeVec[m - indexShift], j-1)
+                    desVel[m,i] = desVel[m,i] + j*coeffVectorApp[j][i]*pow(timeVec[m] - timeVec[indexShift], j-1)
             # acceleration waypoints
             for j in range(2, 6):
                 if j == 2:
@@ -157,8 +168,7 @@ def waypoint_calculation(desiredPos, desiredVel, desiredAcc, desiredTimes):
                         multFactor = 12
                     elif j == 5:
                         multFactor = 20
-                    desAcc[m,i] = desAcc[m,i] + multFactor*coeffVectorApp[j][i]*pow(timeVec[m - indexShift], j-2)
-
+                    desAcc[m,i] = desAcc[m,i] + multFactor*coeffVectorApp[j][i]*pow(timeVec[m] - timeVec[indexShift], j-2)
     return waypoints, desVel, desAcc, timeVec
 
 # have plots been made?
