@@ -12,6 +12,11 @@ Launch the simulation environment
 Launch the controller inside the quad_adcs/src folder (need to figure out how to get rosrun working with catkin_build)
 * /catkin_ws/src/quad_adcs/src (master) $ python discrete_lqr.py
 
+## Infinite Horizon Discrete LQR Performance
+Sluggish yaw response, but reasonably quick position convergence. Can probably use more time for tuning gains to get rid of the overshoot and get more of a critically damped response. The plot is with live data with a one second interval represented by symbols (not sure why two of each appear in the legends). 
+
+![dlqr_step_response](https://user-images.githubusercontent.com/29212589/85236405-83905600-b3d2-11ea-8299-c1aae5048ff7.png)
+
 ## Sub-Optimal Minimum Jerk Trajectory
 Calling the trajectory generator "sub-optimal" due to using pseudoinverse to generate trajectory generator coefficients for the 0<sup>th</sup> to (n-1)<sup>th</sup> points. The last two waypoints exhibit an actual minimum jerk trajectory which can be observed by the kink in the yaw acceleration trajectory.
 
