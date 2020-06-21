@@ -11,6 +11,7 @@ from geometry_msgs.msg import Quaternion
 from sensor_msgs.msg import Imu
 from tf.transformations import euler_from_quaternion, quaternion_from_euler
 from mav_msgs.msg import Actuators
+from waypoint_generation_library import WaypointGen
 
 """
 TODO: Implement minimum jerk trajectory generator for waypoints
@@ -51,13 +52,22 @@ class PDControl(object):
                                  [Iyy*2*zeta*wn],   # pitch
                                  [Izz*2*zeta*wn]])) # yaw
         
+        # position desired gain hand-tuned
+        # proportional gain
+        self.kpPos = np.array(([1],
+                               [1],
+                               [1]))
+        self.kdPos = np.array(([0.1],
+                               [0.1],
+                               [0.1]))
+
         # variable to keep track of the previous error in each state
         self.prevErr = np.zeros((12,1))
         # variable to store waypoints [x, y, z, yaw]
         self.waypointTarget = np.zeros((4,1))
 
         self.equilibriumInput = np.zeros((4,1))
-        self.equilibriumInput[0] = m*g
+        self.equilibriumInput[0] = self.m*self.g
         self.PI = 3.14159
         self.speedAllocationMatrix = np.array([[self.thrustConstant, self.thrustConstant, self.thrustConstant, self.thrustConstant],
                                                [0,                 L*self.thrustConstant,  0,                (-1)*L*self.thrustConstant],
@@ -65,7 +75,15 @@ class PDControl(object):
                                                [self.momentConstant, (-1)*self.momentConstant, self.momentConstant, (-1)*self.momentConstant]])
         # variable to check whether first pass has been completed to start calculating "dt"
         self.firstPass = False
-        self.previousTime = 0
+
+        # calculate the time difference
+        timeNow = rospy.get_rostime()
+        # time now subtracted by start time
+        self.startTime = (timeNow.secs + 1e9*timeNow.nsecs)
+
+        # generate the waypoints
+        WaypointGeneration = WaypointGen()
+        self.waypoints, self.desVel, self.desAcc, self.timeVec = WaypointGeneration.waypoint_calculation()
                                                  
         
     def state_update(self, odomInput):
@@ -99,22 +117,42 @@ class PDControl(object):
                 state[i] = 0
         self.ctrl_update(state)
 
-    def ctrl_update(self, state):
-        """ Apply PD Control and then formulate motor speeds"""        
+    def calc_current_error(self):
+        """ Find the desired state given the trajectory and PD gains and calculate current error"""
         # calculate the time difference
         timeNow = rospy.get_rostime()
-        # current time subtracted by previous time
-        dt = (timeNow.secs + 1e9*timeNow.nsecs) - self.previousTime
-        desiredInput = np.array(([self.m*(desiredState[])]))
+        # time now subtracted by start time
+        currTime = (timeNow.secs + 1e9*timeNow.nsecs) - self.startTime
+
+        # find the closest index in timeVec corresponding to the current time
+        nearestIdx = np.searchsorted(self.timeVec, currTime)
+
+        trajectoryState = np.array(([]))
+
+        # calculate current error
+        currentErr = np.zeros((12,1))
+        for i in range(0,12):
+            currentErr[i] = desiredState[i] - state
+
+        return desiredZAcc, currentErr
+
+
+    def ctrl_update(self, state):
+        """ Apply PD Control and then formulate motor speeds"""      
+        # calculate the desired state at the current timestep
+        desiredZAcc, currentErr = self.calc_current_error()
+        
+        desiredInput = np.array(([self.m*(desiredZAcc + self.g)],
+                                 [self.Ixx*(self.kpAngle[0]*currentErr[6] + self.kdAngle[0]*currentErr[9])],
+                                 [self.Iyy*(self.kpAngle[1]*currentErr[7] + self.kdAngle[1]*currentErr[10])],
+                                 [self.Izz*(self.kpAngle[2]*currentErr[8] + self.kdAngle[2]*currentErr[11])]))
         # find the rotor speed for each rotor
         motorSpeeds = Actuators()                
         motorSpeeds.angular_velocities = np.zeros((4,1))
         motorSpeedTransitionVec = np.dot(np.linalg.inv(self.speedAllocationMatrix), desiredInput)
         motorSpeeds.angular_velocities = np.sqrt(np.abs(motorSpeedTransitionVec))
 
-        timeNow = rospy.get_rostime()
-        self.previousTime = timeNow.secs + 1e9*timeNow.nsecs
-
+        self.prevErr = currentErr
         self.dlqrPublisher.publish(motorSpeeds)
     
     def pd_converter(self):
