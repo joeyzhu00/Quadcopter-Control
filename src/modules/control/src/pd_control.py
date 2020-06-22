@@ -44,43 +44,43 @@ class PDControl(object):
 
         # attitude control gain calculation based on 2nd order system
         # proportional gain
-        self.kpAngle = np.array(([Ixx*pow(wn,2)], # roll
-                                 [Iyy*pow(wn,2)], # pitch
-                                 [Izz*pow(wn,2)]) # yaw
+        self.kpAngle = np.array(([self.Ixx*pow(wn,2)], # roll
+                                 [self.Iyy*pow(wn,2)], # pitch
+                                 [self.Izz*pow(wn,2)])) # yaw
         # derivative gain
-        self.kdAngle = np.array(([Ixx*2*zeta*wn],   # roll
-                                 [Iyy*2*zeta*wn],   # pitch
-                                 [Izz*2*zeta*wn]])) # yaw
+        self.kdAngle = np.array(([self.Ixx*2*zeta*wn],   # roll
+                                 [self.Iyy*2*zeta*wn],   # pitch
+                                 [self.Izz*2*zeta*wn])) # yaw
         
         # position desired gain hand-tuned
         # proportional gain
         self.kpPos = np.array(([1],
                                [1],
                                [1]))
-        self.kdPos = np.array(([0.1],
-                               [0.1],
-                               [0.1]))
+        self.kdPos = np.array(([0.01],
+                               [0.01],
+                               [0.01]))
 
         # variable to keep track of the previous error in each state
-        self.prevErr = np.zeros((12,1))
-        # variable to store waypoints [x, y, z, yaw]
-        self.waypointTarget = np.zeros((4,1))
+        self.prevRPYErr = np.zeros((3,1))
 
         self.equilibriumInput = np.zeros((4,1))
         self.equilibriumInput[0] = self.m*self.g
         self.PI = 3.14159
         self.speedAllocationMatrix = np.array([[self.thrustConstant, self.thrustConstant, self.thrustConstant, self.thrustConstant],
-                                               [0,                 L*self.thrustConstant,  0,                (-1)*L*self.thrustConstant],
-                                               [(-1)*L*self.thrustConstant,  0,          L*self.thrustConstant, 0],
+                                               [0,                 self.L*self.thrustConstant,  0,                (-1)*self.L*self.thrustConstant],
+                                               [(-1)*self.L*self.thrustConstant,  0,          self.L*self.thrustConstant, 0],
                                                [self.momentConstant, (-1)*self.momentConstant, self.momentConstant, (-1)*self.momentConstant]])
         # variable to check whether first pass has been completed to start calculating "dt"
         self.firstPass = False
-
+        # first pass dt corresponding to 100 hz controller
+        self.firstPassDt = 0.01
         # calculate the time difference
         timeNow = rospy.get_rostime()
         # time now subtracted by start time
         self.startTime = (timeNow.secs + 1e9*timeNow.nsecs)
-
+        # previous time placeholder
+        self.prevTime = 0
         # generate the waypoints
         WaypointGeneration = WaypointGen()
         self.waypoints, self.desVel, self.desAcc, self.timeVec = WaypointGeneration.waypoint_calculation()
@@ -117,42 +117,72 @@ class PDControl(object):
                 state[i] = 0
         self.ctrl_update(state)
 
-    def calc_current_error(self):
+    def calc_error(self, state):
         """ Find the desired state given the trajectory and PD gains and calculate current error"""
         # calculate the time difference
         timeNow = rospy.get_rostime()
         # time now subtracted by start time
         currTime = (timeNow.secs + 1e9*timeNow.nsecs) - self.startTime
-
+        # time difference
+        if not self.firstPass:
+            dt = self.firstPassDt
+            self.firstPass = True
+        else:
+            dt = currTime - self.prevTime
+        
         # find the closest index in timeVec corresponding to the current time
         nearestIdx = np.searchsorted(self.timeVec, currTime)
+        if nearestIdx >= np.size(self.timeVec):
+            nearestIdx = np.size(self.timeVec)-1
+        print(currTime)
+        print(nearestIdx)
+        # desired linear acceleration calculation 
+        posErr = np.array(([self.waypoints[nearestIdx,0] - state[0]],
+                           [self.waypoints[nearestIdx,1] - state[1]],
+                           [self.waypoints[nearestIdx,2] - state[2]]))
+        rateErr = np.array(([self.desVel[nearestIdx,0] - state[3]],
+                            [self.desVel[nearestIdx,1] - state[4]],
+                            [self.desVel[nearestIdx,2] - state[5]]))
+        desiredLinAcc = np.array(([self.desAcc[nearestIdx,0] + self.kpPos[0]*posErr + self.kdPos[0]*rateErr],
+                                  [self.desAcc[nearestIdx,1] + self.kpPos[1]*posErr + self.kdPos[1]*rateErr],
+                                  [self.desAcc[nearestIdx,2] + self.kpPos[2]*posErr + self.kdPos[2]*rateErr]))  
+        desiredZAcc = desiredLinAcc[2]
 
-        trajectoryState = np.array(([]))
+        # desired RPY angles
+        rpyDes = np.array(([(1/self.g)*(desiredLinAcc[0]*np.sin(self.waypoints[nearestIdx,3]) - desiredLinAcc[1]*np.cos(self.waypoints[nearestIdx,3]))],
+                           [(1/self.g)*(desiredLinAcc[0]*np.cos(self.waypoints[nearestIdx,3]) + desiredLinAcc[1]*np.sin(self.waypoints[nearestIdx,3]))],
+                           [self.waypoints[nearestIdx,3]]))
+        # RPY error
+        rpyErr = np.array(([rpyDes[0] - state[6]],
+                           [rpyDes[1] - state[7]],
+                           [rpyDes[2] - state[8]]))
 
-        # calculate current error
-        currentErr = np.zeros((12,1))
-        for i in range(0,12):
-            currentErr[i] = desiredState[i] - state
+        # RPY Rate error backward difference for roll and pitch
+        rpyRateErr = np.array(([(rpyErr[0] - self.prevRPYErr[0])/dt],
+                               [(rpyErr[1] - self.prevRPYErr[1])/dt],
+                               [self.desVel[3]]))
 
-        return desiredZAcc, currentErr
-
+        # record the time
+        self.prevTime = currTime
+        # record the error
+        self.prevRPYErr = rpyErr
+        return desiredZAcc, rpyErr, rpyRateErr
 
     def ctrl_update(self, state):
         """ Apply PD Control and then formulate motor speeds"""      
         # calculate the desired state at the current timestep
-        desiredZAcc, currentErr = self.calc_current_error()
+        desiredZAcc, rpyErr, rpyRateErr = self.calc_error(state)
         
         desiredInput = np.array(([self.m*(desiredZAcc + self.g)],
-                                 [self.Ixx*(self.kpAngle[0]*currentErr[6] + self.kdAngle[0]*currentErr[9])],
-                                 [self.Iyy*(self.kpAngle[1]*currentErr[7] + self.kdAngle[1]*currentErr[10])],
-                                 [self.Izz*(self.kpAngle[2]*currentErr[8] + self.kdAngle[2]*currentErr[11])]))
+                                 [self.Ixx*(self.kpAngle[0]*rpyErr[0] + self.kdAngle[0]*rpyRateErr[0])],
+                                 [self.Iyy*(self.kpAngle[1]*rpyErr[1] + self.kdAngle[1]*rpyRateErr[1])],
+                                 [self.Izz*(self.kpAngle[2]*rpyErr[2] + self.kdAngle[2]*rpyRateErr[2])]))
         # find the rotor speed for each rotor
         motorSpeeds = Actuators()                
         motorSpeeds.angular_velocities = np.zeros((4,1))
         motorSpeedTransitionVec = np.dot(np.linalg.inv(self.speedAllocationMatrix), desiredInput)
         motorSpeeds.angular_velocities = np.sqrt(np.abs(motorSpeedTransitionVec))
-
-        self.prevErr = currentErr
+    
         self.dlqrPublisher.publish(motorSpeeds)
     
     def pd_converter(self):
