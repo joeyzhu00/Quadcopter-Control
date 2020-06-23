@@ -11,15 +11,7 @@ from geometry_msgs.msg import Quaternion
 from sensor_msgs.msg import Imu
 from tf.transformations import euler_from_quaternion, quaternion_from_euler
 from mav_msgs.msg import Actuators
-from waypoint_generation_library import WaypointGen
-
-"""
-TODO: Implement minimum jerk trajectory generator for waypoints
-TODO: Design waypoint selector, probably just find the closest point in terms of distance
-TODO: Trajectory generator with waypoints as inputs
-TODO: Create function to calculate desired attitude and linear accelerations
-""" 
-
+from waypoint_generation_library import WaypointGen 
 
 class PDControl(object):
     """ Takes IMU and position data and publishes actuator commands based off a Proportional Derivative law"""
@@ -40,32 +32,31 @@ class PDControl(object):
         # damping ratio (critically damped)
         zeta = 1
         # natural frequency
-        wn = 9 # [rad/s]
+        wn = 0.01 # [rad/s]
 
         # attitude control gain calculation based on 2nd order system
         # proportional gain
-        self.kpAngle = np.array(([self.Ixx*pow(wn,2)], # roll
-                                 [self.Iyy*pow(wn,2)], # pitch
-                                 [self.Izz*pow(wn,2)])) # yaw
+        self.kpAngle = np.array(([self.Ixx*pow(wn,2), # roll
+                                  self.Iyy*pow(wn,2), # pitch
+                                  self.Izz*pow(wn,2)])) # yaw
+        print(self.kpAngle)
         # derivative gain
-        self.kdAngle = np.array(([self.Ixx*2*zeta*wn],   # roll
-                                 [self.Iyy*2*zeta*wn],   # pitch
-                                 [self.Izz*2*zeta*wn])) # yaw
-        
+        self.kdAngle = np.array(([self.Ixx*2*zeta*wn,   # roll
+                                  self.Iyy*2*zeta*wn,   # pitch
+                                  self.Izz*2*zeta*wn])) # yaw
+        print(self.kdAngle)
         # position desired gain hand-tuned
         # proportional gain
-        self.kpPos = np.array(([1],
-                               [1],
-                               [1]))
-        self.kdPos = np.array(([0.01],
-                               [0.01],
-                               [0.01]))
+        self.kpPos = np.array(([1,
+                                1,
+                                1]))
+        self.kdPos = np.array(([1,
+                                1,
+                                1]))
 
         # variable to keep track of the previous error in each state
         self.prevRPYErr = np.zeros((3,1))
 
-        self.equilibriumInput = np.zeros((4,1))
-        self.equilibriumInput[0] = self.m*self.g
         self.PI = 3.14159
         self.speedAllocationMatrix = np.array([[self.thrustConstant, self.thrustConstant, self.thrustConstant, self.thrustConstant],
                                                [0,                 self.L*self.thrustConstant,  0,                (-1)*self.L*self.thrustConstant],
@@ -75,10 +66,8 @@ class PDControl(object):
         self.firstPass = False
         # first pass dt corresponding to 100 hz controller
         self.firstPassDt = 0.01
-        # calculate the time difference
-        timeNow = rospy.get_rostime()
         # time now subtracted by start time
-        self.startTime = (timeNow.secs + 1e9*timeNow.nsecs)
+        self.startTime = rospy.get_time()
         # previous time placeholder
         self.prevTime = 0
         # generate the waypoints
@@ -120,48 +109,49 @@ class PDControl(object):
     def calc_error(self, state):
         """ Find the desired state given the trajectory and PD gains and calculate current error"""
         # calculate the time difference
-        timeNow = rospy.get_rostime()
         # time now subtracted by start time
-        currTime = (timeNow.secs + 1e9*timeNow.nsecs) - self.startTime
+        currTime = rospy.get_time() - self.startTime
         # time difference
         if not self.firstPass:
             dt = self.firstPassDt
             self.firstPass = True
         else:
             dt = currTime - self.prevTime
-        
+        # get_time() is pretty unreliable... 
+        if dt <= 0.0001:
+            dt = 0.01
+        print(dt)
         # find the closest index in timeVec corresponding to the current time
         nearestIdx = np.searchsorted(self.timeVec, currTime)
         if nearestIdx >= np.size(self.timeVec):
             nearestIdx = np.size(self.timeVec)-1
-        print(currTime)
-        print(nearestIdx)
+
         # desired linear acceleration calculation 
-        posErr = np.array(([self.waypoints[nearestIdx,0] - state[0]],
-                           [self.waypoints[nearestIdx,1] - state[1]],
-                           [self.waypoints[nearestIdx,2] - state[2]]))
-        rateErr = np.array(([self.desVel[nearestIdx,0] - state[3]],
-                            [self.desVel[nearestIdx,1] - state[4]],
-                            [self.desVel[nearestIdx,2] - state[5]]))
-        desiredLinAcc = np.array(([self.desAcc[nearestIdx,0] + self.kpPos[0]*posErr + self.kdPos[0]*rateErr],
-                                  [self.desAcc[nearestIdx,1] + self.kpPos[1]*posErr + self.kdPos[1]*rateErr],
-                                  [self.desAcc[nearestIdx,2] + self.kpPos[2]*posErr + self.kdPos[2]*rateErr]))  
+        posErr = np.array(([self.waypoints[nearestIdx,0] - state[0,0],
+                            self.waypoints[nearestIdx,1] - state[1,0],
+                            self.waypoints[nearestIdx,2] - state[2,0]]))
+
+        rateErr = np.array(([self.desVel[nearestIdx,0] - state[3,0],
+                             self.desVel[nearestIdx,1] - state[4,0],
+                             self.desVel[nearestIdx,2] - state[5,0]]))        
+
+        desiredLinAcc = np.array(([self.desAcc[nearestIdx,0] + self.kpPos[0]*posErr[0] + self.kdPos[0]*rateErr[0],
+                                   self.desAcc[nearestIdx,1] + self.kpPos[1]*posErr[1] + self.kdPos[1]*rateErr[1],
+                                   self.desAcc[nearestIdx,2] + self.kpPos[2]*posErr[2] + self.kdPos[2]*rateErr[2]]))  
         desiredZAcc = desiredLinAcc[2]
-
         # desired RPY angles
-        rpyDes = np.array(([(1/self.g)*(desiredLinAcc[0]*np.sin(self.waypoints[nearestIdx,3]) - desiredLinAcc[1]*np.cos(self.waypoints[nearestIdx,3]))],
-                           [(1/self.g)*(desiredLinAcc[0]*np.cos(self.waypoints[nearestIdx,3]) + desiredLinAcc[1]*np.sin(self.waypoints[nearestIdx,3]))],
-                           [self.waypoints[nearestIdx,3]]))
+        rpyDes = np.array(([(1/self.g)*(desiredLinAcc[0]*np.sin(self.waypoints[nearestIdx,3]) - desiredLinAcc[1]*np.cos(self.waypoints[nearestIdx,3])),
+                            (1/self.g)*(desiredLinAcc[0]*np.cos(self.waypoints[nearestIdx,3]) + desiredLinAcc[1]*np.sin(self.waypoints[nearestIdx,3])),
+                            self.waypoints[nearestIdx,3]]))
         # RPY error
-        rpyErr = np.array(([rpyDes[0] - state[6]],
-                           [rpyDes[1] - state[7]],
-                           [rpyDes[2] - state[8]]))
-
+        rpyErr = np.array(([rpyDes[0] - state[6,0],
+                            rpyDes[1] - state[7,0],
+                            rpyDes[2] - state[8,0]]))
         # RPY Rate error backward difference for roll and pitch
-        rpyRateErr = np.array(([(rpyErr[0] - self.prevRPYErr[0])/dt],
-                               [(rpyErr[1] - self.prevRPYErr[1])/dt],
-                               [self.desVel[3]]))
-
+        rpyRateErr = np.array(([(rpyErr[0] - self.prevRPYErr[0])/dt,
+                                (rpyErr[1] - self.prevRPYErr[1])/dt,
+                                self.desVel[nearestIdx, 3]]))
+        print(rpyRateErr)
         # record the time
         self.prevTime = currTime
         # record the error
@@ -173,6 +163,7 @@ class PDControl(object):
         # calculate the desired state at the current timestep
         desiredZAcc, rpyErr, rpyRateErr = self.calc_error(state)
         
+        # print(rpyErr[0])
         desiredInput = np.array(([self.m*(desiredZAcc + self.g)],
                                  [self.Ixx*(self.kpAngle[0]*rpyErr[0] + self.kdAngle[0]*rpyRateErr[0])],
                                  [self.Iyy*(self.kpAngle[1]*rpyErr[1] + self.kdAngle[1]*rpyRateErr[1])],
