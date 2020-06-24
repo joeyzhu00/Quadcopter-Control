@@ -11,6 +11,7 @@ from geometry_msgs.msg import Quaternion
 from sensor_msgs.msg import Imu
 from tf.transformations import euler_from_quaternion, quaternion_from_euler
 from mav_msgs.msg import Actuators
+from waypoint_generation_library import WaypointGen 
 
 class DiscreteLQR(object):
     """ Takes IMU and position data and publishes actuator commands based off an infinite horizon discrete LQR control law"""
@@ -68,21 +69,29 @@ class DiscreteLQR(object):
         Q[2][2] = 500
         Q[8][8] = 10000
         R = 100*np.array([[10, 0, 0, 0],
-                      [0, 5, 0, 0],
-                      [0, 0, 5, 0],
-                      [0, 0, 0, 0.0001]])
+                          [0, 5, 0, 0],
+                          [0, 0, 5, 0],
+                          [0, 0, 0, 0.0001]])
 
         Uinf = linalg.solve_discrete_are(A, B, Q, R, None, None)
-        self.dlqrGain = np.dot(np.linalg.inv(R + np.dot(B.T, np.dot(Uinf, B))), np.dot(B.T, np.dot(Uinf, A)))                                                  
+        self.dlqrGain = np.dot(np.linalg.inv(R + np.dot(B.T, np.dot(Uinf, B))), np.dot(B.T, np.dot(Uinf, A)))   
+
+        # time now subtracted by start time
+        self.startTime = rospy.get_time()
+        # generate the waypoints
+        WaypointGeneration = WaypointGen()
+        self.waypoints, self.desVel, self.desAcc, self.timeVec = WaypointGeneration.waypoint_calculation()
+        self.desiredPos = WaypointGeneration.desiredPos
+        self.desiredTimes = WaypointGeneration.desiredTimes
         
     def state_update(self, odomInput):
         """ Generate state vector from odometry input"""
         # create state vector
         state = np.zeros((12,1))        
         # position
-        state[0] = odomInput.pose.pose.position.x - 3
-        state[1] = odomInput.pose.pose.position.y - 6 
-        state[2] = odomInput.pose.pose.position.z - 15
+        state[0] = odomInput.pose.pose.position.x
+        state[1] = odomInput.pose.pose.position.y 
+        state[2] = odomInput.pose.pose.position.z
         # velocity
         state[3] = odomInput.twist.twist.linear.x
         state[4] = odomInput.twist.twist.linear.y
@@ -94,7 +103,7 @@ class DiscreteLQR(object):
                                                     odomInput.pose.pose.orientation.w])
         state[6] = roll
         state[7] = pitch
-        state[8] = yaw - self.PI/2
+        state[8] = yaw
         # angular rate
         state[9] = odomInput.twist.twist.angular.x
         state[10] = odomInput.twist.twist.angular.y
@@ -106,8 +115,41 @@ class DiscreteLQR(object):
                 state[i] = 0
         self.ctrl_update(state)
 
+    def calc_pos_error(self, state):
+        """ Find the desired state given the trajectory and PD gains and calculate current error"""
+        # # calculate the time difference
+        # # time now subtracted by start time
+        # currTime = rospy.get_time() - self.startTime
+        # # find the closest index in timeVec corresponding to the current time
+        # nearestIdx = np.searchsorted(self.desiredTimes, currTime)
+        # if nearestIdx >= np.size(self.desiredTimes):
+        #     nearestIdx = np.size(self.desiredTimes)-1        
+        # # waypoint error
+        # posErr = np.array(([state[0,0] - self.desiredPos[nearestIdx,0],
+        #                     state[1,0] - self.desiredPos[nearestIdx,1],
+        #                     state[2,0] - self.desiredPos[nearestIdx,2],
+        #                     state[8,0] - self.desiredPos[nearestIdx,3]]))                            
+        # calculate the time difference
+        # time now subtracted by start time
+        currTime = rospy.get_time() - self.startTime
+        # find the closest index in timeVec corresponding to the current time
+        nearestIdx = np.searchsorted(self.timeVec, currTime)
+        if nearestIdx >= np.size(self.timeVec):
+            nearestIdx = np.size(self.timeVec)-1        
+        # waypoint error
+        posErr = np.array(([state[0,0] - self.waypoints[nearestIdx,0],
+                            state[1,0] - self.waypoints[nearestIdx,1],
+                            state[2,0] - self.waypoints[nearestIdx,2],
+                            state[8,0] - self.waypoints[nearestIdx,3]]))  
+        return posErr
+
     def ctrl_update(self, state):
-        """ Multiply state by Discrete LQR Gain Matrix and then formulate motor speeds"""        
+        """ Multiply state by Discrete LQR Gain Matrix and then formulate motor speeds"""
+        posErr = self.calc_pos_error(state)
+        for i in range(3):
+            state[i,0] = posErr[i]
+        state[8,0] = posErr[3]
+        print(posErr)
         desiredInput = (-1)*np.dot(self.dlqrGain, state) + self.equilibriumInput
         # find the rotor speed for each rotor
         motorSpeeds = Actuators()                

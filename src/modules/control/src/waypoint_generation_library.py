@@ -16,12 +16,12 @@ class WaypointGen(object):
         PI = 3.14159
         # NOTE: consider putting these entries into a YAML file and then read
         # in the order of [x_pos, y_pos, z_pos, yaw_angle] in [m, m, m, rad]
-        # self.desiredPos = np.array([[0, 0, 0, 0],   
-        #                             [1, 2, 5, 0],
-        #                             [4, 5, 8, 0],
-        #                             [3, 6, 10, 0]])
-        self.desiredPos = np.array([[0, 0, 0, 0],                                       
-                                    [2, 3, 5, 0]])
+        self.desiredPos = np.array([[0, 0, 0, 0],   
+                                    [1, 2, 5, 0],
+                                    [4, 5, 8, 0],
+                                    [3, 6, 10, 0]])
+        # self.desiredPos = np.array([[0, 0, 0, 0],                                       
+        #                             [0, 0, 10, PI/2]])
         # in the order of [x_vel, y_vel, z_vel, yaw_rate] in [m/s, m/s, m/s, rad/s]
         self.desiredVel = np.array([[0, 0, 0, 0],
                                     [0, 0, 0, 0]])
@@ -29,8 +29,8 @@ class WaypointGen(object):
         self.desiredAcc = np.array([[0, 0, 0, 0],
                                     [0, 0, 0, 0]])
         # desired time to arrive at each waypoint
-        # self.desiredTimes = np.array([0, 5, 10, 15])
-        self.desiredTimes = np.array([0, 10])
+        self.desiredTimes = np.array([0, 5, 10, 15])
+        # self.desiredTimes = np.array([0, 10])
         # number of points between each waypoint, should consider making this a function of sampling time with respect to the time difference between each desiredTimes entry
         self.numPtsBtTimes = 100        
 
