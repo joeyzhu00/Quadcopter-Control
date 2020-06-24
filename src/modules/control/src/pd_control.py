@@ -12,7 +12,7 @@ from sensor_msgs.msg import Imu
 from tf.transformations import euler_from_quaternion, quaternion_from_euler
 from mav_msgs.msg import Actuators
 from waypoint_generation_library import WaypointGen 
-
+# TODO: make this critically damped by tuning the natural frequency
 class PDControl(object):
     """ Takes IMU and position data and publishes actuator commands based off a Proportional Derivative law"""
     def __init__(self):
@@ -29,34 +29,30 @@ class PDControl(object):
         self.Izz = 0.012 # [kg*m^2]
         gamma = self.thrustConstant / self.momentConstant
         self.L = 0.17    # [m]
-        # damping ratio (critically damped)
-        zeta = 1
+        
+        # damping ratio (overdamped)
+        zeta = 2
         # natural frequency
         self.PI = 3.14159
-        wn = 50 # [rad/s]
-
-        # attitude control gain calculation based on 2nd order system
+        wnAng = 35 # [rad/s]
+        # attitude control gains calculation based on 2nd order system assumption
         # proportional gain
-        self.kpAngle = np.array(([self.Ixx*pow(wn,2), # roll
-                                  self.Iyy*pow(wn,2), # pitch
-                                  self.Izz*pow(wn,2)])) # yaw
-        # self.kpAngle = np.array(([1, # roll
-        #                           1, # pitch
-        #                           10])) # yaw
+        self.kpAngle = np.array(([self.Ixx*pow(wnAng,2), # roll
+                                  self.Iyy*pow(wnAng,2), # pitch
+                                  self.Izz*pow(wnAng,2)])) # yaw
         print(self.kpAngle)
         # derivative gain
-        self.kdAngle = np.array(([self.Ixx*2*zeta*wn,   # roll
-                                  self.Iyy*2*zeta*wn,   # pitch
-                                  self.Izz*2*zeta*wn])) # yaw
-        # self.kdAngle = np.array(([0.1,   # roll
-        #                           0.1,   # pitch
-        #                           0.1])) # yaw
+        self.kdAngle = np.array(([self.Ixx*2*zeta*wnAng,   # roll
+                                  self.Iyy*2*zeta*wnAng,   # pitch
+                                  self.Izz*2*zeta*wnAng])) # yaw
         print(self.kdAngle)
-        # position desired gain hand-tuned
+
+        # position control gains hand-tuned
         # proportional gain
         self.kpPos = np.array(([0.1,
                                 0.1,
                                 1]))
+        # derivative gain
         self.kdPos = np.array(([0.1,
                                 0.1,
                                 1]))
