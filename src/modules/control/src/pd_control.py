@@ -32,19 +32,21 @@ class PDControl(object):
         
         # damping ratio (overdamped)
         zeta = 2
+        zetaYaw = 1
         # natural frequency
         self.PI = 3.14159
-        wnAng = 35 # [rad/s]
+        wnAng = 40 # [rad/s]
+        wnAngYaw = 690
         # attitude control gains calculation based on 2nd order system assumption
         # proportional gain
         self.kpAngle = np.array(([self.Ixx*pow(wnAng,2), # roll
                                   self.Iyy*pow(wnAng,2), # pitch
-                                  self.Izz*pow(wnAng,2)])) # yaw
+                                  self.Izz*pow(wnAngYaw,2)])) # yaw
         print(self.kpAngle)
         # derivative gain
         self.kdAngle = np.array(([self.Ixx*2*zeta*wnAng,   # roll
                                   self.Iyy*2*zeta*wnAng,   # pitch
-                                  self.Izz*2*zeta*wnAng])) # yaw
+                                  self.Izz*2*zetaYaw*wnAngYaw])) # yaw
         print(self.kdAngle)
 
         # position control gains hand-tuned
@@ -127,7 +129,7 @@ class PDControl(object):
         nearestIdx = np.searchsorted(self.timeVec, currTime)
         if nearestIdx >= np.size(self.timeVec):
             nearestIdx = np.size(self.timeVec)-1
-        print(nearestIdx)
+            
         # desired linear acceleration calculation 
         posErr = np.array(([self.waypoints[nearestIdx,0] - state[0,0],
                             self.waypoints[nearestIdx,1] - state[1,0],

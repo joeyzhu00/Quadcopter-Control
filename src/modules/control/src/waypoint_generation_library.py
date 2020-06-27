@@ -16,12 +16,12 @@ class WaypointGen(object):
         PI = 3.14159
         # NOTE: consider putting these entries into a YAML file and then read
         # in the order of [x_pos, y_pos, z_pos, yaw_angle] in [m, m, m, rad]
-        self.desiredPos = np.array([[0, 0, 0, 0],   
-                                    [1, 2, 5, 0],
-                                    [4, 5, 8, 0],
-                                    [3, 6, 10, PI/4]])
-        # self.desiredPos = np.array([[0, 0, 0, 0],                                       
-        #                             [3, 5, 10, 0]])
+        # self.desiredPos = np.array([[0, 0, 0, 0],   
+        #                             [1, 2, 5, 0],
+        #                             [4, 5, 8, 0],
+        #                             [3, 6, 10, PI/4]])
+        self.desiredPos = np.array([[0, 0, 0, 0],                                       
+                                    [3, 5, 10, PI/2]])
         # in the order of [x_vel, y_vel, z_vel, yaw_rate] in [m/s, m/s, m/s, rad/s]
         self.desiredVel = np.array([[0, 0, 0, 0],
                                     [0, 0, 0, 0]])
@@ -29,8 +29,8 @@ class WaypointGen(object):
         self.desiredAcc = np.array([[0, 0, 0, 0],
                                     [0, 0, 0, 0]])
         # desired time to arrive at each waypoint
-        self.desiredTimes = np.array([0, 5, 10, 15])
-        # self.desiredTimes = np.array([0, 10])
+        # self.desiredTimes = np.array([0, 5, 10, 15])
+        self.desiredTimes = np.array([0, 10])
         # number of points between each waypoint, should consider making this a function of sampling time with respect to the time difference between each desiredTimes entry
         self.numPtsBtTimes = 100        
 
@@ -115,7 +115,7 @@ class WaypointGen(object):
         # take the desired vel and accel from the 2nd to last waypoint and use as initial conditions for optimal min jerk trajectory
         # 2nd to last point index        
         minDesiredPos = np.array([self.desiredPos[np.size(self.desiredTimes)-2,:],
-                                self.desiredPos[np.size(self.desiredTimes)-1,:]])
+                                  self.desiredPos[np.size(self.desiredTimes)-1,:]])
         minDesiredVel = np.concatenate((secondLastVel, np.array([[self.desiredVel[1,0], self.desiredVel[1,1], self.desiredVel[1,2], self.desiredVel[1,3]]])), axis = 0)
         minDesiredAcc = np.concatenate((secondLastAcc, np.array([[self.desiredAcc[1,0], self.desiredAcc[1,1], self.desiredAcc[1,2], self.desiredAcc[1,3]]])), axis = 0)
         timeDiff = self.desiredTimes[-1] - self.desiredTimes[np.size(self.desiredTimes)-2]

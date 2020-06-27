@@ -11,16 +11,22 @@ from geometry_msgs.msg import Quaternion
 from sensor_msgs.msg import Imu
 from tf.transformations import euler_from_quaternion, quaternion_from_euler
 from mav_msgs.msg import Actuators
-
+from waypoint_generation_library import WaypointGen
+ 
 class LivePlot(object):
     def __init__(self):
         self.PI = 3.14159
         self.desiredState = np.zeros((12,1))
         self.desiredState[0] = 3
-        self.desiredState[1] = 6
-        self.desiredState[2] = 15
+        self.desiredState[1] = 5
+        self.desiredState[2] = 10
         self.desiredState[8] = self.PI/2
         
+        WaypointGeneration = WaypointGen()
+        self.waypoints, self.desVel, self.desAcc, self.timeVec = WaypointGeneration.waypoint_calculation()
+        self.desiredPos = WaypointGeneration.desiredPos
+        self.desiredTimes = WaypointGeneration.desiredTimes
+
     
     def plot_data(self, odomMsg):
         """Function to plot reference state and current state data"""
@@ -83,7 +89,7 @@ class LivePlot(object):
         plt.plot(time, yaw, 'go')
         plt.plot(time, self.desiredState[8], 'g*')
         plt.xlabel('Time [sec]')
-        plt.ylabel('Body Attitude in Inertial Frame [m]')
+        plt.ylabel('Body Attitude in Inertial Frame [rad]')
         plt.legend(['roll','$roll_{des}$', 'pitch', '$pitch_{des}$', 'yaw', '$yaw_{des}$'])
         plt.grid()
 
@@ -96,7 +102,7 @@ class LivePlot(object):
         # yaw
         plt.plot(time, yaw - self.desiredState[8], 'go')            
         plt.xlabel('Time [sec]')
-        plt.ylabel('Body Attitude Error in Inertial Frame [m]')
+        plt.ylabel('Body Attitude Error in Inertial Frame [rad]')
         plt.legend(['$roll_{err}$','$pitch_{err}$','$yaw_{err}$'])
         plt.grid()
 
@@ -107,7 +113,6 @@ class LivePlot(object):
     def live_plot_operation(self):
         """ Subscribe to the estimator """
         rospy.Subscriber("/hummingbird/ground_truth/odometry", Odometry, self.plot_data, queue_size = 1)
-        plt.ion()
         plt.show()
         rospy.spin()
 

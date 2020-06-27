@@ -65,13 +65,14 @@ class DiscreteLQR(object):
                                                [(-1)*L*self.thrustConstant,  0,          L*self.thrustConstant, 0],
                                                [self.momentConstant, (-1)*self.momentConstant, self.momentConstant, (-1)*self.momentConstant]])
 
-        Q = np.eye(12)
-        Q[2][2] = 500
-        Q[8][8] = 10000
-        R = 100*np.array([[10, 0, 0, 0],
+        QMult = 1
+        Q = QMult*np.eye(12)
+        Q[2][2] = 500/QMult
+        Q[8][8] = 10000/QMult
+        R = 1000*np.array([[1, 0, 0, 0],
                           [0, 5, 0, 0],
                           [0, 0, 5, 0],
-                          [0, 0, 0, 0.0001]])
+                          [0, 0, 0, 0.00001]])
 
         Uinf = linalg.solve_discrete_are(A, B, Q, R, None, None)
         self.dlqrGain = np.dot(np.linalg.inv(R + np.dot(B.T, np.dot(Uinf, B))), np.dot(B.T, np.dot(Uinf, A)))   
@@ -116,19 +117,20 @@ class DiscreteLQR(object):
         self.ctrl_update(state)
 
     def calc_pos_error(self, state):
-        """ Find the desired state given the trajectory and PD gains and calculate current error"""
+        """ Find the desired state given the trajectory and PD gains and calculate current error"""                                 
         # # calculate the time difference
         # # time now subtracted by start time
         # currTime = rospy.get_time() - self.startTime
-        # # find the closest index in timeVec corresponding to the current time
+        # # find the closest index in desiredTimes corresponding to the current time
         # nearestIdx = np.searchsorted(self.desiredTimes, currTime)
         # if nearestIdx >= np.size(self.desiredTimes):
         #     nearestIdx = np.size(self.desiredTimes)-1        
         # # waypoint error
-        # posErr = np.array(([state[0,0] - self.desiredPos[nearestIdx,0],
-        #                     state[1,0] - self.desiredPos[nearestIdx,1],
-        #                     state[2,0] - self.desiredPos[nearestIdx,2],
-        #                     state[8,0] - self.desiredPos[nearestIdx,3]]))                            
+        # currErr = np.array(([state[0,0] - self.desiredPos[nearestIdx,0],
+        #                      state[1,0] - self.desiredPos[nearestIdx,1],
+        #                      state[2,0] - self.desiredPos[nearestIdx,2],
+        #                      state[8,0] - self.desiredPos[nearestIdx,3]]))  
+
         # calculate the time difference
         # time now subtracted by start time
         currTime = rospy.get_time() - self.startTime
@@ -136,20 +138,25 @@ class DiscreteLQR(object):
         nearestIdx = np.searchsorted(self.timeVec, currTime)
         if nearestIdx >= np.size(self.timeVec):
             nearestIdx = np.size(self.timeVec)-1        
-        # waypoint error
-        posErr = np.array(([state[0,0] - self.waypoints[nearestIdx,0],
-                            state[1,0] - self.waypoints[nearestIdx,1],
-                            state[2,0] - self.waypoints[nearestIdx,2],
-                            state[8,0] - self.waypoints[nearestIdx,3]]))  
-        return posErr
+        # current error
+        currErr = np.array(([state[0,0] - self.waypoints[nearestIdx,0],
+                             state[1,0] - self.waypoints[nearestIdx,1],
+                             state[2,0] - self.waypoints[nearestIdx,2],
+                             state[3,0] - self.desVel[nearestIdx,0],
+                             state[4,0] - self.desVel[nearestIdx,1],
+                             state[5,0] - self.desVel[nearestIdx,2],
+                             state[8,0] - self.waypoints[nearestIdx,3],
+                             state[11,0] - self.desVel[nearestIdx,3]])) 
+        return currErr
 
     def ctrl_update(self, state):
         """ Multiply state by Discrete LQR Gain Matrix and then formulate motor speeds"""
-        posErr = self.calc_pos_error(state)
-        for i in range(3):
-            state[i,0] = posErr[i]
-        state[8,0] = posErr[3]
-        print(posErr)
+        currErr = self.calc_pos_error(state)
+        for i in range(5):
+            state[i,0] = currErr[i]
+        state[8,0] = currErr[6]
+        state[11,0] = currErr[7]
+
         desiredInput = (-1)*np.dot(self.dlqrGain, state) + self.equilibriumInput
         # find the rotor speed for each rotor
         motorSpeeds = Actuators()                

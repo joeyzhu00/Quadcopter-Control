@@ -83,7 +83,7 @@ plt.ylabel('Acceleration [$m/s^2$]')
 # desired yaw
 axYawRate = axAcc.twinx()
 axYawRate.plot(timeVec, desAcc[:,3], '.-g')
-axYawRate.set_ylabel('Yaw [$ad/s^2$]')
+axYawRate.set_ylabel('Yaw [$rad/s^2$]')
 plt.show()
 
 
