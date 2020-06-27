@@ -6,7 +6,7 @@ Development work is done under the quad_adcs folder.
 Not really sure how to get `catkin_make` working with the `catkin build` from **rotors_simulator**, so the control code is separated.
 
 ## Steps to Run Simulation
-Launch the simulation environment
+Launch the simulation environment (wherever you keep rotorS)
 * $ roslaunch rotors_gazebo mav.launch mav_name:=hummingbird world_name:=basic
 
 # DLQR
@@ -14,6 +14,7 @@ Launch the controller inside the quad_adcs/src folder (need to figure out how to
 * /quad_ws (master) $ source devel/setup.bash
 * /quad_ws (master) $ rosrun control discrete_lqr.py
 # PD Control
+* /quad_ws (master) $ source devel/setup.bash
 * /quad_ws (master) $ rosrun control pd_control.py
 
 ## Infinite Horizon Discrete LQR Performance
