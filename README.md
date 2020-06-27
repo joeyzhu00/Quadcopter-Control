@@ -15,13 +15,11 @@ Launch the controller inside the quad_adcs/src folder (need to figure out how to
 ## Infinite Horizon Discrete LQR Performance
 Sluggish yaw response, but reasonably quick position convergence. Can probably use more time for tuning gains to get rid of the overshoot and get more of a critically damped response. The plot is with live data with a one second interval represented by symbols (not sure why two of each appear in the legends). 
 
-![dlqr_step_response](https://user-images.githubusercontent.com/29212589/85236405-83905600-b3d2-11ea-8299-c1aae5048ff7.png)
+![dlqr_step_response](https://user-images.githubusercontent.com/29212589/85929675-9fc94280-b86b-11ea-91a3-cc68ee14d815.png)
 
 ## Sub-Optimal Minimum Jerk Trajectory
 Calling the trajectory generator "sub-optimal" due to using pseudoinverse to generate trajectory generator coefficients for the 0<sup>th</sup> to (n-1)<sup>th</sup> points. The last two waypoints exhibit an actual minimum jerk trajectory which can be observed by the kink in the yaw acceleration trajectory.
 
-![sub_optimal_min_jerk_waypoints](https://user-images.githubusercontent.com/29212589/85236328-eaf9d600-b3d1-11ea-96fd-4626667bda51.png)
+![sub_optimal_min_jerk_waypoints](https://user-images.githubusercontent.com/29212589/85929683-ac4d9b00-b86b-11ea-825d-3083b69145da.png)
 
-
-![sub_optimal_min_jerk_desired_kinematics](https://user-images.githubusercontent.com/29212589/85236330-ecc39980-b3d1-11ea-86bb-6faa3d147d89.png)
-
+![sub_optimal_min_jerk_desired_kinematics](https://user-images.githubusercontent.com/29212589/85929684-ad7ec800-b86b-11ea-9e30-e5e20ba5fb86.png)
