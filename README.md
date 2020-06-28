@@ -1,5 +1,5 @@
 # Quadcopter Control
-Testing out different control laws for quadcopter control, currently have infinite discrete linear quadratic regulator implemented in addition to a minimum jerk trajectory generator. Using rotorS from ETH-Zurich as simulation environment which can be accessed here: https://github.com/ethz-asl/rotors_simulator.
+Testing out different control laws for quadcopter control, currently have infinite discrete linear quadratic regulator and PD controller implemented in addition to a minimum jerk trajectory generator. Using rotorS from ETH-Zurich as simulation environment which can be accessed here: https://github.com/ethz-asl/rotors_simulator.
 
 Development work is done under the quad_adcs folder.
 
@@ -10,7 +10,6 @@ Launch the simulation environment (wherever you keep rotorS)
 * $ roslaunch rotors_gazebo mav.launch mav_name:=hummingbird world_name:=basic
 
 # DLQR
-Launch the controller inside the quad_adcs/src folder (need to figure out how to get rosrun working with catkin_build)
 * /quad_ws (master) $ source devel/setup.bash
 * /quad_ws (master) $ rosrun control discrete_lqr.py
 # PD Control
