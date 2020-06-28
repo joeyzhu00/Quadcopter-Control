@@ -118,19 +118,6 @@ class DiscreteLQR(object):
 
     def calc_pos_error(self, state):
         """ Find the desired state given the trajectory and PD gains and calculate current error"""                                 
-        # # calculate the time difference
-        # # time now subtracted by start time
-        # currTime = rospy.get_time() - self.startTime
-        # # find the closest index in desiredTimes corresponding to the current time
-        # nearestIdx = np.searchsorted(self.desiredTimes, currTime)
-        # if nearestIdx >= np.size(self.desiredTimes):
-        #     nearestIdx = np.size(self.desiredTimes)-1        
-        # # waypoint error
-        # currErr = np.array(([state[0,0] - self.desiredPos[nearestIdx,0],
-        #                      state[1,0] - self.desiredPos[nearestIdx,1],
-        #                      state[2,0] - self.desiredPos[nearestIdx,2],
-        #                      state[8,0] - self.desiredPos[nearestIdx,3]]))  
-
         # calculate the time difference
         # time now subtracted by start time
         currTime = rospy.get_time() - self.startTime
