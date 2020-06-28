@@ -14,6 +14,7 @@ from mav_msgs.msg import Actuators
 from waypoint_generation_library import WaypointGen
  
 class LivePlot(object):
+    """Plot data for a step response"""
     def __init__(self):
         self.PI = 3.14159
         self.desiredState = np.zeros((12,1))

@@ -11,12 +11,10 @@ from geometry_msgs.msg import Quaternion
 from sensor_msgs.msg import Imu
 from tf.transformations import euler_from_quaternion, quaternion_from_euler
 from mav_msgs.msg import Actuators
+from waypoint_generation_library import WaypointGen 
 
-"""TODO: Add integrator action (not included in LQ gain calculation but rather from classical control) but need slew planner first"""
-"""TODO: Slew planner subscriber after it is designed"""
-class DiscreteLQRFakeIntegrator(object):
-    """ Takes IMU and position data and publishes actuator commands based off an infinite horizon discrete LQR control law in addition to integral action
-        based off a simple k_i*sum(err) scheme"""
+class InfDiscreteLQR(object):
+    """ Takes IMU and position data and publishes actuator commands based off an infinite horizon discrete LQR control law"""
     def __init__(self):
         self.dlqrPublisher = rospy.Publisher("/hummingbird/command/motor_speed", Actuators, queue_size = 1)
         
@@ -66,27 +64,35 @@ class DiscreteLQRFakeIntegrator(object):
                                                [0,                 L*self.thrustConstant,  0,                (-1)*L*self.thrustConstant],
                                                [(-1)*L*self.thrustConstant,  0,          L*self.thrustConstant, 0],
                                                [self.momentConstant, (-1)*self.momentConstant, self.momentConstant, (-1)*self.momentConstant]])
-        self.integralGain = 1
-        self.errAccumulation = 0
-        Q = np.eye(12)
-        Q[2][2] = 500
-        Q[8][8] = 10000
-        R = 100*np.array([[10, 0, 0, 0],
-                      [0, 5, 0, 0],
-                      [0, 0, 5, 0],
-                      [0, 0, 0, 0.0001]])
+
+        QMult = 1
+        Q = QMult*np.eye(12)
+        Q[2][2] = 500/QMult
+        Q[8][8] = 10000/QMult
+        R = 1000*np.array([[1, 0, 0, 0],
+                          [0, 5, 0, 0],
+                          [0, 0, 5, 0],
+                          [0, 0, 0, 0.00001]])
 
         Uinf = linalg.solve_discrete_are(A, B, Q, R, None, None)
-        self.dlqrGain = np.dot(np.linalg.inv(R + np.dot(B.T, np.dot(Uinf, B))), np.dot(B.T, np.dot(Uinf, A)))                                                  
+        self.dlqrGain = np.dot(np.linalg.inv(R + np.dot(B.T, np.dot(Uinf, B))), np.dot(B.T, np.dot(Uinf, A)))   
+
+        # time now subtracted by start time
+        self.startTime = rospy.get_time()
+        # generate the waypoints
+        WaypointGeneration = WaypointGen()
+        self.waypoints, self.desVel, self.desAcc, self.timeVec = WaypointGeneration.waypoint_calculation()
+        self.desiredPos = WaypointGeneration.desiredPos
+        self.desiredTimes = WaypointGeneration.desiredTimes
         
     def state_update(self, odomInput):
         """ Generate state vector from odometry input"""
         # create state vector
         state = np.zeros((12,1))        
         # position
-        state[0] = odomInput.pose.pose.position.x - 3
-        state[1] = odomInput.pose.pose.position.y - 6 
-        state[2] = odomInput.pose.pose.position.z - 15
+        state[0] = odomInput.pose.pose.position.x
+        state[1] = odomInput.pose.pose.position.y 
+        state[2] = odomInput.pose.pose.position.z
         # velocity
         state[3] = odomInput.twist.twist.linear.x
         state[4] = odomInput.twist.twist.linear.y
@@ -98,7 +104,7 @@ class DiscreteLQRFakeIntegrator(object):
                                                     odomInput.pose.pose.orientation.w])
         state[6] = roll
         state[7] = pitch
-        state[8] = yaw - self.PI/2
+        state[8] = yaw
         # angular rate
         state[9] = odomInput.twist.twist.angular.x
         state[10] = odomInput.twist.twist.angular.y
@@ -110,8 +116,34 @@ class DiscreteLQRFakeIntegrator(object):
                 state[i] = 0
         self.ctrl_update(state)
 
+    def calc_pos_error(self, state):
+        """ Find the desired state given the trajectory and PD gains and calculate current error"""                                 
+        # calculate the time difference
+        # time now subtracted by start time
+        currTime = rospy.get_time() - self.startTime
+        # find the closest index in timeVec corresponding to the current time
+        nearestIdx = np.searchsorted(self.timeVec, currTime)
+        if nearestIdx >= np.size(self.timeVec):
+            nearestIdx = np.size(self.timeVec)-1        
+        # current error
+        currErr = np.array(([state[0,0] - self.waypoints[nearestIdx,0],
+                             state[1,0] - self.waypoints[nearestIdx,1],
+                             state[2,0] - self.waypoints[nearestIdx,2],
+                             state[3,0] - self.desVel[nearestIdx,0],
+                             state[4,0] - self.desVel[nearestIdx,1],
+                             state[5,0] - self.desVel[nearestIdx,2],
+                             state[8,0] - self.waypoints[nearestIdx,3],
+                             state[11,0] - self.desVel[nearestIdx,3]])) 
+        return currErr
+
     def ctrl_update(self, state):
-        """ Multiply state by Discrete LQR Gain Matrix and then formulate motor speeds"""  
+        """ Multiply state by Discrete LQR Gain Matrix and then formulate motor speeds"""
+        currErr = self.calc_pos_error(state)
+        for i in range(5):
+            state[i,0] = currErr[i]
+        state[8,0] = currErr[6]
+        state[11,0] = currErr[7]
+
         desiredInput = (-1)*np.dot(self.dlqrGain, state) + self.equilibriumInput
         # find the rotor speed for each rotor
         motorSpeeds = Actuators()                
@@ -128,7 +160,7 @@ class DiscreteLQRFakeIntegrator(object):
 
 def main():
     rospy.init_node("dlqr_node", anonymous = False)
-    dlqrOperator = DiscreteLQR()
+    dlqrOperator = InfDiscreteLQR()
 
     try:
         dlqrOperator.dlqr_converter()

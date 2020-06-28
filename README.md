@@ -9,9 +9,9 @@ Not really sure how to get `catkin_make` working with the `catkin build` from **
 Launch the simulation environment (wherever you keep rotorS)
 * $ roslaunch rotors_gazebo mav.launch mav_name:=hummingbird world_name:=basic
 
-# DLQR
+# Infinite Horizon DLQR
 * /quad_ws (master) $ source devel/setup.bash
-* /quad_ws (master) $ rosrun control discrete_lqr.py
+* /quad_ws (master) $ rosrun control inf_discrete_lqr.py
 # PD Control
 * /quad_ws (master) $ source devel/setup.bash
 * /quad_ws (master) $ rosrun control pd_control.py

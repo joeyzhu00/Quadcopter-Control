@@ -13,8 +13,8 @@ from tf.transformations import euler_from_quaternion, quaternion_from_euler
 from mav_msgs.msg import Actuators
 from waypoint_generation_library import WaypointGen 
 
-class DiscreteLQR(object):
-    """ Takes IMU and position data and publishes actuator commands based off an infinite horizon discrete LQR control law"""
+class InfDiscreteLQRWithIntegrator(object):
+    """ Takes IMU and position data and publishes actuator commands based off an infinite horizon discrete LQR control law with integrator"""
     def __init__(self):
         self.dlqrPublisher = rospy.Publisher("/hummingbird/command/motor_speed", Actuators, queue_size = 1)
         
@@ -160,7 +160,7 @@ class DiscreteLQR(object):
 
 def main():
     rospy.init_node("dlqr_node", anonymous = False)
-    dlqrOperator = DiscreteLQR()
+    dlqrOperator = InfDiscreteLQRWithIntegrator()
 
     try:
         dlqrOperator.dlqr_converter()
