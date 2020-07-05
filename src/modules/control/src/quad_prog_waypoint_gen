@@ -1,0 +1,240 @@
+#!/usr/bin/env python3
+
+"""
+Test script for MPC to determine the waypoints via quadratic program
+"""
+import rospy
+import cvxpy as cv
+import numpy as np
+from scipy import linalg
+from waypoint_generation_library import WaypointGen
+
+PI = 3.14159
+# degrees to radians
+D2R = PI/180
+
+thrustConstant = 8.54858e-06
+momentConstant = 1.6e-2
+g = 9.81    # [m/s^2]
+m = 0.716   # [kg]
+Ixx = 0.007 # [kg*m^2]
+Iyy = 0.007 # [kg*m^2]
+Izz = 0.012 # [kg*m^2]
+gamma = thrustConstant / momentConstant
+dt = 0.1   # [sec]
+L = 0.17    # [m]
+# state update matrix
+A = np.array([[1, 0, 0, dt, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 1, 0, 0, dt, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 1, 0, 0, dt, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 1, 0, 0, 0, dt*g, 0, 0, 0, 0],
+                [0, 0, 0, 0, 1, 0, -dt*g, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 1, 0, 0, dt, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, dt, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, dt],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]])
+# input matrix
+B = np.array([[0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [dt/m, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, dt/Ixx, 0, 0],
+                [0, 0, dt/Iyy, 0],
+                [0, 0, 0, dt/Izz]])
+# gravity component of input
+Bg = np.array([0,
+                0,
+                0,
+                0,
+                0,
+                -g*dt,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0])
+
+equilibriumInput = np.zeros((4,1))
+equilibriumInput[0] = m*g
+
+
+# QMult = 1
+# Q = QMult*np.eye(12)
+# Q[2][2] = 500/QMult
+# Q[8][8] = 1/QMult
+# R = 1*np.array([[1, 0, 0, 0],
+#                     [0, 5, 0, 0],
+#                     [0, 0, 5, 0],
+#                     [0, 0, 0, 0.00001]])
+                    
+QMult = 1
+Q = 5*QMult*np.eye(12)
+Q[2][2] = 1/QMult
+Q[8][8] = 1/QMult
+R = np.array([[1, 0, 0, 0],
+              [0, 5, 0, 0],
+              [0, 0, 5, 0],
+              [0, 0, 0, 0.1]])
+
+# the terminal cost
+Uinf = linalg.solve_discrete_are(A, B, Q, R, None, None)
+dlqrGain = np.dot(np.linalg.inv(R + np.dot(B.T, np.dot(Uinf, B))), np.dot(B.T, np.dot(Uinf, A)))   
+
+WaypointGeneration = WaypointGen()
+desiredPos = WaypointGeneration.desiredPos
+desiredTimes = WaypointGeneration.desiredTimes
+
+mpcHorizon = 5
+finalTime = np.amax(desiredTimes)
+
+# number of inputs
+nu = 4
+# number of states
+nx = 12
+
+# set up the MPC problem
+u = cv.Variable((nu, mpcHorizon))
+x = cv.Variable((nx, mpcHorizon+1))
+xInit = cv.Parameter(nx)
+
+# xmin = np.array(([-10,
+#                   -10,
+#                   0,
+#                   -0.5,
+#                   -0.5,
+#                   -0.5,
+#                   -4*D2R,
+#                   -4*D2R,
+#                   -90*D2R,
+#                   -0.5*D2R,
+#                   -0.5*D2R,
+#                   -0.5*D2R]))
+# xmax = np.array(([30,
+#                   30,
+#                   30,
+#                   0.5,
+#                   0.5,
+#                   0.5,
+#                   4*D2R,
+#                   4*D2R,
+#                   90*D2R,
+#                   0.5*D2R,
+#                   0.5*D2R,
+#                   0.5*D2R]))                  
+
+# umin = np.array(([-2*m*g,
+#                   -0.5,
+#                   -0.5,
+#                   -0.5]))
+# umax = np.array(([2*m*g,
+#                   0.5,
+#                   0.5,
+#                   0.5]))                  
+
+xmin = np.array(([-100,
+                  -100,
+                  0,
+                  -5,
+                  -5,
+                  -5,
+                  -5*D2R,
+                  -5*D2R,
+                  -90*D2R,
+                  -1*D2R,
+                  -1*D2R,
+                  -1*D2R]))
+xmax = np.array(([100,
+                  100,
+                  100,
+                  5,
+                  5,
+                  5,
+                  5*D2R,
+                  5*D2R,
+                  90*D2R,
+                  1*D2R,
+                  1*D2R,
+                  1*D2R]))                  
+
+umin = np.array(([-2*m*g,
+                  -0.5,
+                  -0.5,
+                  -0.5]))
+umax = np.array(([2*m*g,
+                  0.5,
+                  0.5,
+                  0.5]))                   
+
+def mpc_problem_def(xInit, xr):
+    """ Function to setup the MPC problem given the reference state, initial state,
+        corresponding infinite horizon discrete lqr gain matrices, and constraints"""
+    objective = 0
+    constraints = [x[:,0] == xInit]
+    for k in range(mpcHorizon):
+        objective += cv.quad_form(x[:,k] - xr, Q) + cv.quad_form(u[:,k], R)
+        constraints += [x[:,k+1] == A@x[:,k] + B@u[:,k] + Bg]
+        constraints += [xmin <= x[:,k], x[:,k] <= xmax]
+        constraints += [umin <= u[:,k], u[:,k] <= umax]
+    objective += cv.quad_form(x[:,mpcHorizon] - xr, Uinf)
+    prob = cv.Problem(cv.Minimize(objective), constraints)
+
+    return prob
+
+def calc_ref_state(currTime):
+    """ Function to calculate the reference state given the current time"""
+    # find the closest index in desiredTimes corresponding to the current time
+    nearestIdx = np.searchsorted(desiredTimes, currTime)
+
+    # if the 
+    if nearestIdx == 0:
+        nearestIdx = 1
+    elif nearestIdx >= np.size(desiredTimes):
+        nearestIdx = np.size(desiredTimes)-1 
+    
+    refState = np.array([desiredPos[nearestIdx,0],
+                          desiredPos[nearestIdx,1],
+                          desiredPos[nearestIdx,2],
+                          0,
+                          0,
+                          0,
+                          0,
+                          0,
+                          desiredPos[nearestIdx,3],
+                          0,
+                          0,
+                          0])
+    
+    return refState
+
+# initial state
+x0 = np.zeros((12))
+print(x0)
+# simulation length in timesteps
+simLen = int(finalTime / dt)
+# initial time
+t0 = 0
+# do closed loop simulation
+for i in range(simLen):
+    xInit.value = x0
+    xr = calc_ref_state(t0)
+    prob = mpc_problem_def(xInit, xr)
+    prob.solve(solver=cv.ECOS, warm_start=True, verbose=True)
+    x0 = np.dot(A, x0) + np.dot(B, u[:,0].value) + Bg
+    t0 = t0 + dt
+
+print(x0)
+
+    
+    
+
+
+
