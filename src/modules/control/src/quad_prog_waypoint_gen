@@ -24,7 +24,7 @@ I = np.array(([Ixx, 0, 0],
               [0, Iyy, 0],
               [0, 0, Izz]))
 gamma = thrustConstant / momentConstant
-dt = 0.1   # [sec]
+dt = 0.02   # [sec]
 L = 0.17    # [m]
 # state update matrix
 A = np.array([[1, 0, 0, dt, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -96,7 +96,8 @@ R = 1000*np.array([[1, 0, 0, 0],
 # the terminal cost
 Uinf = linalg.solve_discrete_are(A, B, Q, R, None, None)
 dlqrGain = np.dot(np.linalg.inv(R + np.dot(B.T, np.dot(Uinf, B))), np.dot(B.T, np.dot(Uinf, A)))   
-
+eigVals, eigVec = linalg.eig((A - np.dot(B, dlqrGain)))
+print(eigVals)
 WaypointGeneration = WaypointGen()
 desiredPos = WaypointGeneration.desiredPos
 desiredTimes = WaypointGeneration.desiredTimes
@@ -114,11 +115,10 @@ u = cv.Variable((nu, mpcHorizon))
 x = cv.Variable((nx, mpcHorizon+1))
 xInit = cv.Parameter(nx)                                 
 
-xmin = np.array(([-10, -10, 0, -10, -10, -10, 
-                  -90*D2R, -90*D2R, -90*D2R, -5*D2R, -5*D2R, -5*D2R]))
-xmax = np.array(([10, 10, 20, 10, 10, 10,
-                  90*D2R, 90*D2R, 90*D2R, 5*D2R, 5*D2R, 5*D2R]))  
-
+xmin = np.array(([-100, -100, 0, -100, -100, -100, 
+                  -90*D2R, -90*D2R, -90*D2R, -20*D2R, -20*D2R, -20*D2R]))
+xmax = np.array(([100, 100, 20, 100, 100, 100,
+                  90*D2R, 90*D2R, 90*D2R, 20*D2R, 20*D2R, 20*D2R]))  
 # xmin = np.array(([-100,
 #                   -100,
 #                      0,
@@ -144,8 +144,8 @@ xmax = np.array(([10, 10, 20, 10, 10, 10,
 #                   5*D2R,
 #                   5*D2R]))                
 
-umin = np.array(([-2*m*g, -4, -4, -4]))
-umax = np.array(([2*m*g, 4, 4, 4]))                   
+umin = np.array(([-m*g, -1, -1, -1]))
+umax = np.array(([2*m*g, 1, 1, 1]))                   
 
 def mpc_problem_def(xInit, xr):
     """ Function to setup the MPC problem given the reference state, initial state,
@@ -238,25 +238,18 @@ for i in range(simLen):
     xInit.value = x0
     xr = calc_ref_state(t0)
     prob = mpc_problem_def(xInit, xr)
-    prob.solve(solver=cv.OSQP, warm_start=True, verbose=True)
+    # prob.solve(solver=cv.OSQP, warm_start=True, verbose=True)
+    prob.solve(warm_start=True, verbose=True)
     print(prob.status)
     x0 = quad_nonlinear_eom(x0, u[:,0].value)
     prevInput = u[:,0].value
 
     # if prob.status not in ["infeasible", "unbounded"]:
-        # x0 = quad_nonlinear_eom(x0, u[:,0].value)
-        # prevInput = u[:,0].value
+    #     x0 = quad_nonlinear_eom(x0, u[:,0].value)
+    #     prevInput = u[:,0].value
     # else:
     #     x0 = quad_nonlinear_eom(x0, prevInput)
-    # x0 = np.dot(A, x0) + np.dot(B, (u[:,0].value + np.array([m*g, 0, 0, 0]))) + Bg
+
     t0 = t0 + dt
     print(x0)
-    
-
-print(x0)
-
-    
-    
-
-
 
