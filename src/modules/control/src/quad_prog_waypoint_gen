@@ -20,6 +20,9 @@ m = 0.716   # [kg]
 Ixx = 0.007 # [kg*m^2]
 Iyy = 0.007 # [kg*m^2]
 Izz = 0.012 # [kg*m^2]
+I = np.array(([Ixx, 0, 0],
+              [0, Iyy, 0],
+              [0, 0, Izz]))
 gamma = thrustConstant / momentConstant
 dt = 0.1   # [sec]
 L = 0.17    # [m]
@@ -63,27 +66,32 @@ Bg = np.array([0,
                 0,
                 0])
 
+speedAllocationMatrix = np.array([[thrustConstant, thrustConstant, thrustConstant, thrustConstant],
+                                  [0,                 L*thrustConstant,  0,                (-1)*L*thrustConstant],
+                                  [(-1)*L*thrustConstant,  0,          L*thrustConstant, 0],
+                                  [momentConstant, (-1)*momentConstant, momentConstant, (-1)*momentConstant]])
+
 equilibriumInput = np.zeros((4,1))
 equilibriumInput[0] = m*g
 
 
+QMult = 1
+Q = QMult*np.eye(12)
+Q[2][2] = 500/QMult
+Q[8][8] = 10000/QMult
+R = 1000*np.array([[1, 0, 0, 0],
+                    [0, 5, 0, 0],
+                    [0, 0, 5, 0],
+                    [0, 0, 0, 0.00001]])
+                    
 # QMult = 1
 # Q = QMult*np.eye(12)
-# Q[2][2] = 500/QMult
+# Q[2][2] = 1/QMult
 # Q[8][8] = 1/QMult
-# R = 1*np.array([[1, 0, 0, 0],
-#                     [0, 5, 0, 0],
-#                     [0, 0, 5, 0],
-#                     [0, 0, 0, 0.00001]])
-                    
-QMult = 1
-Q = 5*QMult*np.eye(12)
-Q[2][2] = 1/QMult
-Q[8][8] = 1/QMult
-R = np.array([[1, 0, 0, 0],
-              [0, 5, 0, 0],
-              [0, 0, 5, 0],
-              [0, 0, 0, 0.1]])
+# R = np.array([[1, 0, 0, 0],
+#               [0, 5, 0, 0],
+#               [0, 0, 5, 0],
+#               [0, 0, 0, 0.1]])
 
 # the terminal cost
 Uinf = linalg.solve_discrete_are(A, B, Q, R, None, None)
@@ -104,75 +112,40 @@ nx = 12
 # set up the MPC problem
 u = cv.Variable((nu, mpcHorizon))
 x = cv.Variable((nx, mpcHorizon+1))
-xInit = cv.Parameter(nx)
+xInit = cv.Parameter(nx)                                 
 
-# xmin = np.array(([-10,
-#                   -10,
-#                   0,
-#                   -0.5,
-#                   -0.5,
-#                   -0.5,
-#                   -4*D2R,
-#                   -4*D2R,
-#                   -90*D2R,
-#                   -0.5*D2R,
-#                   -0.5*D2R,
-#                   -0.5*D2R]))
-# xmax = np.array(([30,
-#                   30,
-#                   30,
-#                   0.5,
-#                   0.5,
-#                   0.5,
-#                   4*D2R,
-#                   4*D2R,
+xmin = np.array(([-10, -10, 0, -10, -10, -10, 
+                  -90*D2R, -90*D2R, -90*D2R, -5*D2R, -5*D2R, -5*D2R]))
+xmax = np.array(([10, 10, 20, 10, 10, 10,
+                  90*D2R, 90*D2R, 90*D2R, 5*D2R, 5*D2R, 5*D2R]))  
+
+# xmin = np.array(([-100,
+#                   -100,
+#                      0,
+#                     -5,
+#                     -5,
+#                     -5,
+#                     -5*D2R,
+#                     -5*D2R,
+#                     -90*D2R,
+#                     -5*D2R,
+#                     -5*D2R,
+#                     -5*D2R]))
+# xmax = np.array(([100,
+#                   100,
+#                   100,
+#                   5,
+#                   5,
+#                   5,
+#                   5*D2R,
+#                   5*D2R,
 #                   90*D2R,
-#                   0.5*D2R,
-#                   0.5*D2R,
-#                   0.5*D2R]))                  
+#                   5*D2R,
+#                   5*D2R,
+#                   5*D2R]))                
 
-# umin = np.array(([-2*m*g,
-#                   -0.5,
-#                   -0.5,
-#                   -0.5]))
-# umax = np.array(([2*m*g,
-#                   0.5,
-#                   0.5,
-#                   0.5]))                  
-
-xmin = np.array(([-100,
-                  -100,
-                  0,
-                  -5,
-                  -5,
-                  -5,
-                  -5*D2R,
-                  -5*D2R,
-                  -90*D2R,
-                  -1*D2R,
-                  -1*D2R,
-                  -1*D2R]))
-xmax = np.array(([100,
-                  100,
-                  100,
-                  5,
-                  5,
-                  5,
-                  5*D2R,
-                  5*D2R,
-                  90*D2R,
-                  1*D2R,
-                  1*D2R,
-                  1*D2R]))                  
-
-umin = np.array(([-2*m*g,
-                  -0.5,
-                  -0.5,
-                  -0.5]))
-umax = np.array(([2*m*g,
-                  0.5,
-                  0.5,
-                  0.5]))                   
+umin = np.array(([-2*m*g, -4, -4, -4]))
+umax = np.array(([2*m*g, 4, 4, 4]))                   
 
 def mpc_problem_def(xInit, xr):
     """ Function to setup the MPC problem given the reference state, initial state,
@@ -181,7 +154,8 @@ def mpc_problem_def(xInit, xr):
     constraints = [x[:,0] == xInit]
     for k in range(mpcHorizon):
         objective += cv.quad_form(x[:,k] - xr, Q) + cv.quad_form(u[:,k], R)
-        constraints += [x[:,k+1] == A@x[:,k] + B@u[:,k] + Bg]
+        constraints += [x[:,k+1] == A@x[:,k] + B@(u[:,k] + np.array([m*g, 0, 0, 0])) + Bg]
+        # constraints += [x[:,k+1] == A@x[:,k] + B@u[:,k] + Bg]
         constraints += [xmin <= x[:,k], x[:,k] <= xmax]
         constraints += [umin <= u[:,k], u[:,k] <= umax]
     objective += cv.quad_form(x[:,mpcHorizon] - xr, Uinf)
@@ -215,9 +189,46 @@ def calc_ref_state(currTime):
     
     return refState
 
+def quad_nonlinear_eom(state, input):
+    """ Function for nonlinear equations of motion of quadcopter """
+    # RPY position and rate update
+    prevAngPos = np.array(([state[6]], 
+                           [state[7]], 
+                           [state[8]]))
+    prevAngVel = np.array(([state[9]],
+                           [state[10]], 
+                           [state[11]]))                        
+    angAccel = np.array(([(input[1] + Iyy*prevAngVel[1,0]*prevAngVel[2,0] - Izz*prevAngVel[1,0]*prevAngVel[2,0])/Ixx],
+                         [(input[2] - Ixx*prevAngVel[0,0]*prevAngVel[2,0] + Izz*prevAngVel[0,0]*prevAngVel[2,0])/Iyy],
+                         [(input[3] + Ixx*prevAngVel[0,0]*prevAngVel[1,0] - Iyy*prevAngVel[0,0]*prevAngVel[1,0])/Izz]))
+    angVel = prevAngVel + angAccel*dt
+    angPos = prevAngPos + angVel*dt
+
+    # XYZ position and rate update
+    prevLinPos = np.array(([state[0]], 
+                           [state[1]], 
+                           [state[2]]))
+    prevLinVel = np.array(([state[3]],
+                           [state[4]], 
+                           [state[5]]))  
+
+    gravityComponent = np.array(([0],
+                                 [0],
+                                 [-g]))
+    # 1-2-3 rotation matrix of inertial in body frame
+    rotMatThirdCol = np.array(([np.cos(prevAngPos[2,0])*np.sin(prevAngPos[1,0])*np.cos(prevAngPos[0,0]) + np.sin(prevAngPos[2,0])*np.sin(prevAngPos[0,0])],
+                               [np.sin(prevAngPos[2,0])*np.sin(prevAngPos[1,0])*np.cos(prevAngPos[0,0]) - np.cos(prevAngPos[2,0])*np.sin(prevAngPos[0,0])],
+                               [np.cos(prevAngPos[1,0])*np.cos(prevAngPos[0,0])]))
+    linAccel = gravityComponent + ((input[0] + m*g)/m)*rotMatThirdCol
+    linVel = prevLinVel + linAccel*dt
+    linPos = prevLinPos + linVel*dt
+
+    nonLinState = np.vstack((linPos, linVel, angPos, angVel))
+    nonLinState = np.ndarray.flatten(nonLinState)
+    return nonLinState
+
 # initial state
 x0 = np.zeros((12))
-print(x0)
 # simulation length in timesteps
 simLen = int(finalTime / dt)
 # initial time
@@ -227,9 +238,20 @@ for i in range(simLen):
     xInit.value = x0
     xr = calc_ref_state(t0)
     prob = mpc_problem_def(xInit, xr)
-    prob.solve(solver=cv.ECOS, warm_start=True, verbose=True)
-    x0 = np.dot(A, x0) + np.dot(B, u[:,0].value) + Bg
+    prob.solve(solver=cv.OSQP, warm_start=True, verbose=True)
+    print(prob.status)
+    x0 = quad_nonlinear_eom(x0, u[:,0].value)
+    prevInput = u[:,0].value
+
+    # if prob.status not in ["infeasible", "unbounded"]:
+        # x0 = quad_nonlinear_eom(x0, u[:,0].value)
+        # prevInput = u[:,0].value
+    # else:
+    #     x0 = quad_nonlinear_eom(x0, prevInput)
+    # x0 = np.dot(A, x0) + np.dot(B, (u[:,0].value + np.array([m*g, 0, 0, 0]))) + Bg
     t0 = t0 + dt
+    print(x0)
+    
 
 print(x0)
 
