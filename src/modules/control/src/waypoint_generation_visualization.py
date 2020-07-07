@@ -14,7 +14,7 @@ from tf.transformations import euler_from_quaternion, quaternion_from_euler
 from mpl_toolkits import mplot3d
 
 WaypointGeneration = WaypointGen()
-waypoints, desVel, desAcc, timeVec = WaypointGeneration.waypoint_calculation()
+waypoints, desVel, desAcc, timeVec = WaypointGeneration.waypoint_calculation2()
 desiredPos = WaypointGeneration.desiredPos
 
 # plot the waypoints    
@@ -29,7 +29,7 @@ cbar.set_label("Time [sec]")
 axPos.set_xlabel('X-Axis [m]')
 axPos.set_ylabel('Y-Axis [m]')
 axPos.set_zlabel('Z-Axis [m]')
-axPos.set_title('Sub-Optimal Minimum Jerk Position Waypoints')
+axPos.set_title('Minimum Jerk Position Waypoints')
 
 # plot the desired kinematics
 figOtherKinematics = plt.figure()
