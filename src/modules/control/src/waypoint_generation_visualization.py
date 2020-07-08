@@ -14,7 +14,7 @@ from tf.transformations import euler_from_quaternion, quaternion_from_euler
 from mpl_toolkits import mplot3d
 
 WaypointGeneration = WaypointGen()
-waypoints, desVel, desAcc, timeVec = WaypointGeneration.waypoint_calculation2()
+waypoints, desVel, desAcc, timeVec = WaypointGeneration.waypoint_calculation()
 desiredPos = WaypointGeneration.desiredPos
 
 # plot the waypoints    
@@ -40,7 +40,7 @@ axPos.plot(timeVec, waypoints[:,0], '-r', label = '$x_b$')
 axPos.plot(timeVec, waypoints[:,1], '-k', label = '$y_b$')
 axPos.plot(timeVec, waypoints[:,2], '-b', label = '$z_b$')
 # add the yaw legend
-axPos.plot(np.nan, '.-g', label = 'yaw')
+axPos.plot(np.nan, '-g', label = 'yaw')
 axPos.legend(loc = 0)
 plt.grid()
 plt.xlabel('Time [sec]')
@@ -48,7 +48,7 @@ plt.ylabel('Position [m]')
 # plt.title('Desired Position in Inertial Frame')
 # desired yaw
 axYaw = axPos.twinx()
-axYaw.plot(timeVec, waypoints[:,3], '.-g')
+axYaw.plot(timeVec, waypoints[:,3], '-g')
 axYaw.set_ylabel('Yaw [rad]')
 
 # desired velocity waypoints
@@ -57,7 +57,7 @@ axVel.plot(timeVec, desVel[:,0], '-r', label = '$v_{x,b}$')
 axVel.plot(timeVec, desVel[:,1], '-k', label = '$v_{y,b}$')
 axVel.plot(timeVec, desVel[:,2], '-b', label = '$v_{z,b}$')
 # add the yaw legend
-axVel.plot(np.nan, '.-g', label = '$yaw_{rate}$')
+axVel.plot(np.nan, '-g', label = '$yaw_{rate}$')
 axVel.legend(loc = 0)
 plt.grid()
 plt.xlabel('Time [sec]')
@@ -65,7 +65,7 @@ plt.ylabel('Velocity [m/s]')
 # plt.title('Desired Velocity in Inertial Frame')
 # desired yaw
 axYawRate = axVel.twinx()
-axYawRate.plot(timeVec, desVel[:,3], '.-g')
+axYawRate.plot(timeVec, desVel[:,3], '-g')
 axYawRate.set_ylabel('Yaw [rad/s]')
 
 # desired acceleration waypoints
@@ -74,7 +74,7 @@ axAcc.plot(timeVec, desAcc[:,0], '-r', label = '$a_{x,b}$')
 axAcc.plot(timeVec, desAcc[:,1], '-k', label = '$a_{y,b}$')
 axAcc.plot(timeVec, desAcc[:,2], '-b', label = '$a_{z,b}$')
 # add the yaw legend
-axAcc.plot(np.nan, '.-g', label = '$yaw_{acc}$')
+axAcc.plot(np.nan, '-g', label = '$yaw_{acc}$')
 axAcc.legend(loc = 0)
 plt.grid()
 plt.xlabel('Time [sec]')
@@ -82,7 +82,7 @@ plt.ylabel('Acceleration [$m/s^2$]')
 # plt.title('Desired Acceleration in Inertial Frame')
 # desired yaw
 axYawRate = axAcc.twinx()
-axYawRate.plot(timeVec, desAcc[:,3], '.-g')
+axYawRate.plot(timeVec, desAcc[:,3], '-g')
 axYawRate.set_ylabel('Yaw [$rad/s^2$]')
 plt.show()
 
