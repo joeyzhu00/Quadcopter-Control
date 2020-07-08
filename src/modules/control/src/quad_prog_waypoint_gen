@@ -24,7 +24,7 @@ I = np.array(([Ixx, 0, 0],
               [0, Iyy, 0],
               [0, 0, Izz]))
 gamma = thrustConstant / momentConstant
-dt = 0.02   # [sec]
+dt = 0.1  # [sec]
 L = 0.17    # [m]
 # state update matrix
 A = np.array([[1, 0, 0, dt, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -115,37 +115,12 @@ u = cv.Variable((nu, mpcHorizon))
 x = cv.Variable((nx, mpcHorizon+1))
 xInit = cv.Parameter(nx)                                 
 
-xmin = np.array(([-100, -100, 0, -100, -100, -100, 
-                  -90*D2R, -90*D2R, -90*D2R, -20*D2R, -20*D2R, -20*D2R]))
-xmax = np.array(([100, 100, 20, 100, 100, 100,
-                  90*D2R, 90*D2R, 90*D2R, 20*D2R, 20*D2R, 20*D2R]))  
-# xmin = np.array(([-100,
-#                   -100,
-#                      0,
-#                     -5,
-#                     -5,
-#                     -5,
-#                     -5*D2R,
-#                     -5*D2R,
-#                     -90*D2R,
-#                     -5*D2R,
-#                     -5*D2R,
-#                     -5*D2R]))
-# xmax = np.array(([100,
-#                   100,
-#                   100,
-#                   5,
-#                   5,
-#                   5,
-#                   5*D2R,
-#                   5*D2R,
-#                   90*D2R,
-#                   5*D2R,
-#                   5*D2R,
-#                   5*D2R]))                
-
-umin = np.array(([-m*g, -1, -1, -1]))
-umax = np.array(([2*m*g, 1, 1, 1]))                   
+xmin = np.array(([0, 0, 0, -5, -5, -5, 
+                  -10*D2R, -10*D2R, -90*D2R, -10*D2R, -10*D2R, -10*D2R]))
+xmax = np.array(([10, 10, 15, 5, 5, 5,
+                  10*D2R, 10*D2R, 90*D2R, 10*D2R, 10*D2R, 10*D2R]))  
+umin = np.array(([-m*g, -0.5, -0.5, -0.5]))
+umax = np.array(([1.5*m*g, 0.5, 0.5, 0.5]))                   
 
 def mpc_problem_def(xInit, xr):
     """ Function to setup the MPC problem given the reference state, initial state,
