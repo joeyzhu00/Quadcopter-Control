@@ -8,6 +8,8 @@ import cvxpy as cv
 import numpy as np
 from scipy import linalg
 from waypoint_generation_library import WaypointGen
+import matplotlib.pyplot as plt
+from mpl_toolkits import mplot3d
 
 PI = 3.14159
 # degrees to radians
@@ -83,15 +85,6 @@ R = 1000*np.array([[1, 0, 0, 0],
                     [0, 5, 0, 0],
                     [0, 0, 5, 0],
                     [0, 0, 0, 0.00001]])
-                    
-# QMult = 1
-# Q = QMult*np.eye(12)
-# Q[2][2] = 1/QMult
-# Q[8][8] = 1/QMult
-# R = np.array([[1, 0, 0, 0],
-#               [0, 5, 0, 0],
-#               [0, 0, 5, 0],
-#               [0, 0, 0, 0.1]])
 
 # the terminal cost
 Uinf = linalg.solve_discrete_are(A, B, Q, R, None, None)
@@ -116,11 +109,12 @@ x = cv.Variable((nx, mpcHorizon+1))
 xInit = cv.Parameter(nx)                                 
 
 xmin = np.array(([0, 0, 0, -5, -5, -5, 
-                  -10*D2R, -10*D2R, -90*D2R, -10*D2R, -10*D2R, -10*D2R]))
+                  -45*D2R, -45*D2R, -90*D2R, -20*D2R, -20*D2R, -20*D2R]))
 xmax = np.array(([10, 10, 15, 5, 5, 5,
-                  10*D2R, 10*D2R, 90*D2R, 10*D2R, 10*D2R, 10*D2R]))  
-umin = np.array(([-m*g, -0.5, -0.5, -0.5]))
-umax = np.array(([1.5*m*g, 0.5, 0.5, 0.5]))                   
+                  45*D2R, 45*D2R, 90*D2R, 20*D2R, 20*D2R, 20*D2R]))  
+maxMotorSpeed = 800 # rad/s
+umin = np.array(([-m*g, -0.1, -0.1, -0.1]))
+umax = np.array(([1.5*m*g, 0.1, 0.1, 0.1]))                   
 
 def mpc_problem_def(xInit, xr):
     """ Function to setup the MPC problem given the reference state, initial state,
@@ -200,7 +194,27 @@ def quad_nonlinear_eom(state, input):
 
     nonLinState = np.vstack((linPos, linVel, angPos, angVel))
     nonLinState = np.ndarray.flatten(nonLinState)
-    return nonLinState
+    return nonLinState, angAccel, linAccel
+
+def gen_waypoints(state, t0, idx, angAccel, linAccel):
+    """ Function to generate position, velocity, and acceleration waypoints along with time vector"""
+    # time
+    timeVec[idx] = t0
+    # position
+    for i in range(0,3):
+        waypoints[idx,i] = state[i]
+    waypoints[idx,3] = state[8]
+    # velocity
+    for j in range(3,6):
+        desVel[idx,j-3] = state[j]
+    desVel[idx,3] = state[11]
+    # acceleration
+    for k in range(0,3):
+        desAcc[idx,k] = linAccel[k]
+    desAcc[idx,3] = angAccel[2]
+
+    return timeVec, waypoints, desVel, desAcc
+        
 
 # initial state
 x0 = np.zeros((12))
@@ -208,23 +222,90 @@ x0 = np.zeros((12))
 simLen = int(finalTime / dt)
 # initial time
 t0 = 0
+
+waypoints = np.zeros((simLen, 4))
+desVel = np.zeros((simLen, 4))
+desAcc = np.zeros((simLen, 4))
+timeVec = np.zeros((simLen))
 # do closed loop simulation
 for i in range(simLen):
     xInit.value = x0
     xr = calc_ref_state(t0)
     prob = mpc_problem_def(xInit, xr)
-    # prob.solve(solver=cv.OSQP, warm_start=True, verbose=True)
-    prob.solve(warm_start=True, verbose=True)
-    print(prob.status)
-    x0 = quad_nonlinear_eom(x0, u[:,0].value)
+    prob.solve(solver=cv.OSQP, warm_start=True, verbose=True)
+    # prob.solve(warm_start=True, verbose=True)
+    x0, angAccel, linAccel = quad_nonlinear_eom(x0, u[:,0].value)
     prevInput = u[:,0].value
 
-    # if prob.status not in ["infeasible", "unbounded"]:
-    #     x0 = quad_nonlinear_eom(x0, u[:,0].value)
-    #     prevInput = u[:,0].value
-    # else:
-    #     x0 = quad_nonlinear_eom(x0, prevInput)
-
     t0 = t0 + dt
+    timeVec, waypoints, desVel, desAcc = gen_waypoints(x0, t0, i, angAccel, linAccel)
     print(x0)
 
+# plot the waypoints    
+figPos = plt.figure()
+axPos = plt.axes(projection = '3d')
+axPos.plot3D(desiredPos[:,0], desiredPos[:,1], desiredPos[:,2], 'ro')
+
+pnt3d = axPos.scatter(waypoints[:,0], waypoints[:,1], waypoints[:,2], c = timeVec)
+cbar = plt.colorbar(pnt3d)
+cbar.set_label("Time [sec]")
+# label the axes and give title
+axPos.set_xlabel('X-Axis [m]')
+axPos.set_ylabel('Y-Axis [m]')
+axPos.set_zlabel('Z-Axis [m]')
+axPos.set_title('Minimum Jerk Position Waypoints')
+
+# plot the desired kinematics
+figOtherKinematics = plt.figure()
+figOtherKinematics.suptitle('Desired Kinematics in Inertial Frame')
+# desired position waypoints
+axPos = plt.subplot(311)
+axPos.plot(timeVec, waypoints[:,0], '-r', label = '$x_b$')
+axPos.plot(timeVec, waypoints[:,1], '-k', label = '$y_b$')
+axPos.plot(timeVec, waypoints[:,2], '-b', label = '$z_b$')
+# add the yaw legend
+axPos.plot(np.nan, '-g', label = 'yaw')
+axPos.legend(loc = 0)
+plt.grid()
+plt.xlabel('Time [sec]')
+plt.ylabel('Position [m]')
+# plt.title('Desired Position in Inertial Frame')
+# desired yaw
+axYaw = axPos.twinx()
+axYaw.plot(timeVec, waypoints[:,3], '-g')
+axYaw.set_ylabel('Yaw [rad]')
+
+# desired velocity waypoints
+axVel = plt.subplot(312)
+axVel.plot(timeVec, desVel[:,0], '-r', label = '$v_{x,b}$')
+axVel.plot(timeVec, desVel[:,1], '-k', label = '$v_{y,b}$')
+axVel.plot(timeVec, desVel[:,2], '-b', label = '$v_{z,b}$')
+# add the yaw legend
+axVel.plot(np.nan, '-g', label = '$yaw_{rate}$')
+axVel.legend(loc = 0)
+plt.grid()
+plt.xlabel('Time [sec]')
+plt.ylabel('Velocity [m/s]')
+# plt.title('Desired Velocity in Inertial Frame')
+# desired yaw
+axYawRate = axVel.twinx()
+axYawRate.plot(timeVec, desVel[:,3], '-g')
+axYawRate.set_ylabel('Yaw [rad/s]')
+
+# desired acceleration waypoints
+axAcc = plt.subplot(313)
+axAcc.plot(timeVec, desAcc[:,0], '-r', label = '$a_{x,b}$')
+axAcc.plot(timeVec, desAcc[:,1], '-k', label = '$a_{y,b}$')
+axAcc.plot(timeVec, desAcc[:,2], '-b', label = '$a_{z,b}$')
+# add the yaw legend
+axAcc.plot(np.nan, '-g', label = '$yaw_{acc}$')
+axAcc.legend(loc = 0)
+plt.grid()
+plt.xlabel('Time [sec]')
+plt.ylabel('Acceleration [$m/s^2$]')
+# plt.title('Desired Acceleration in Inertial Frame')
+# desired yaw
+axYawRate = axAcc.twinx()
+axYawRate.plot(timeVec, desAcc[:,3], '-g')
+axYawRate.set_ylabel('Yaw [$rad/s^2$]')
+plt.show()
