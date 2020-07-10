@@ -26,9 +26,9 @@ Roll/Pitch PD gains based off assumption that the quadcopter can be approximated
 
 ![pd_control_step_response](https://user-images.githubusercontent.com/29212589/85929927-57128900-b86d-11ea-81c3-26af6c4765b1.png)
 
-## Sub-Optimal Minimum Jerk Trajectory
-Calling the trajectory generator "sub-optimal" due to using pseudoinverse to generate trajectory generator coefficients for the 0<sup>th</sup> to (n-1)<sup>th</sup> points. The last two waypoints exhibit an actual minimum jerk trajectory which can be observed by the kink in the yaw acceleration trajectory.
+## Optimal Minimum Jerk Trajectory
+To get intermediate velocity and acceleration targets between the desired waypoints, a pseudo-inverse solution gets computed. Afterwards, a minimum jerk trajectory between each desired waypoint is generated. 
 
-![sub_optimal_min_jerk_waypoints](https://user-images.githubusercontent.com/29212589/85929683-ac4d9b00-b86b-11ea-825d-3083b69145da.png)
+![Minimum Jerk Waypoints](https://user-images.githubusercontent.com/29212589/87103039-b6c34980-c208-11ea-8db5-8807edf11a69.png)
 
-![sub_optimal_min_jerk_desired_kinematics](https://user-images.githubusercontent.com/29212589/85929684-ad7ec800-b86b-11ea-9e30-e5e20ba5fb86.png)
+![Desired Kinematics](https://user-images.githubusercontent.com/29212589/87103018-a3b07980-c208-11ea-9ca5-609c0b0d52f8.png)
