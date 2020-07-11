@@ -1,20 +1,31 @@
 # Quadcopter Control
-Testing out different control laws for quadcopter control, currently have infinite discrete linear quadratic regulator and PD controller implemented in addition to a minimum jerk trajectory generator. Using rotorS from ETH-Zurich as simulation environment which can be accessed here: https://github.com/ethz-asl/rotors_simulator.
+Testing out different control laws for quadcopter control, currently have the following features:
+* infinite discrete linear quadratic regulator
+* PD controller
+* MPC with linear quadratic programming (yaw authority basically nonexistent, needs tuning)
+* minimum jerk trajectory generator 
+
+Using rotorS from ETH-Zurich as simulation environment which can be accessed here: https://github.com/ethz-asl/rotors_simulator.
 
 Development work is done under the quad_adcs folder.
 
 Not really sure how to get `catkin_make` working with the `catkin build` from **rotors_simulator**, so the control code is separated.
 
 ## Steps to Run Simulation
+Open up `waypoint_generation_library.py` and check whether the waypoints hardcoded in are what you want (eventually this will be part of a launch or YAML file). 
+
 Launch the simulation environment (wherever you keep rotorS)
 * $ roslaunch rotors_gazebo mav.launch mav_name:=hummingbird world_name:=basic
 
 # Infinite Horizon DLQR
-* /quad_ws (master) $ source devel/setup.bash
-* /quad_ws (master) $ rosrun control inf_discrete_lqr.py
+* /Quadcopter-Control (master) $ source devel/setup.bash
+* /Quadcopter-Control (master) $ rosrun control inf_discrete_lqr.py
 # PD Control
-* /quad_ws (master) $ source devel/setup.bash
-* /quad_ws (master) $ rosrun control pd_control.py
+* /Quadcopter-Control (master) $ source devel/setup.bash
+* /Quadcopter-Control (master) $ rosrun control pd_control.py
+# MPC
+* /Quadcopter-Control (master) $ source devel/setup.bash
+* /Quadcopter-Control (master) $ rosrun control mpc_quad_prog.py
 
 ## Infinite Horizon Discrete LQR Performance
 Sluggish yaw response, but reasonably quick position convergence. Can probably use more time for tuning gains to get rid of the overshoot and get more of a critically damped response. The plot is with live data with a one second interval represented by symbols (not sure why two of each appear in the legends). Need to tune out steady-state instability that occurs about 20 seconds after reaching the desired "steady-state position". May keep this as a feature as the quadcopter does some complex acrobatics during this unstable phase. Possible limit cycle occurring in the phase plane of the quadcopter that is causing this instability.  
@@ -25,6 +36,9 @@ Sluggish yaw response, but reasonably quick position convergence. Can probably u
 Roll/Pitch PD gains based off assumption that the quadcopter can be approximated as a second-order system. Small yaw torque authority results in the addition of a multiplier for the yaw PD gains. Position control gains are hand-tuned. Roll/Pitch damping ratio is overdamped while yaw is critically damped.
 
 ![pd_control_step_response](https://user-images.githubusercontent.com/29212589/85929927-57128900-b86d-11ea-81c3-26af6c4765b1.png)
+
+## MPC Control 
+Linear quadratic program with gains from the infinite horizon discrete LQR controller. XYZ-position control is available but the yaw control needs a lot of work. It is very sensitive to the MPC horizon, high computation speed is a must when using the MPC. 
 
 ## Optimal Minimum Jerk Trajectory
 To get intermediate velocity and acceleration targets between the desired waypoints, a pseudo-inverse solution gets computed. Afterwards, a minimum jerk trajectory between each desired waypoint is generated. 
