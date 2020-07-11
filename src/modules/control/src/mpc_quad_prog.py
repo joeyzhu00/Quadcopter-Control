@@ -87,10 +87,7 @@ class MPCQuadProg(object):
                           [0, 5, 0, 0],
                           [0, 0, 5, 0],
                           [0, 0, 0, 0.00001]])
-        # self.R = np.array([[1, 0, 0, 0],
-        #                     [0, 1, 0, 0],
-        #                     [0, 0, 1, 0],
-        #                     [0, 0, 0, 1]])
+
         self.Uinf = linalg.solve_discrete_are(self.A, self.B, self.Q, self.R, None, None)
         self.dlqrGain = np.dot(np.linalg.inv(self.R + np.dot(self.B.T, np.dot(self.Uinf, self.B))), np.dot(self.B.T, np.dot(self.Uinf, self.A)))   
 
@@ -102,7 +99,7 @@ class MPCQuadProg(object):
         self.desiredPos = WaypointGeneration.desiredPos
         self.desiredTimes = WaypointGeneration.desiredTimes
 
-        self.mpcHorizon = 5
+        self.mpcHorizon = 3
         # number of inputs
         self.nu = 4
         # number of states
@@ -113,11 +110,11 @@ class MPCQuadProg(object):
         # set up the MPC constraints
         D2R = self.PI/180
         self.xmin = np.array(([-10, -10, 0, -5, -5, -5, 
-                        -90*D2R, -90*D2R, -90*D2R, -50*D2R, -50*D2R, -50*D2R]))
+                        -45*D2R, -45*D2R, -90*D2R, -50*D2R, -50*D2R, -50*D2R]))
         self.xmax = np.array(([10, 10, 15, 5, 5, 5,
-                        90*D2R, 90*D2R, 90*D2R, 50*D2R, 50*D2R, 50*D2R]))  
-        self.umin = np.array(([-self.m*self.g, -0.5, -0.5, -0.1]))
-        self.umax = np.array(([1.5*self.m*self.g, 0.5, 0.5, 0.1]))                   
+                        45*D2R, 45*D2R, 90*D2R, 50*D2R, 50*D2R, 50*D2R]))  
+        self.umin = np.array(([-self.m*self.g, -0.5, -0.5, -0.5]))
+        self.umax = np.array(([1.5*self.m*self.g, 0.5, 0.5, 0.5]))                   
         
     def mpc_problem_def(self, xInit, xr):
         """ Function to setup the MPC problem given the reference state, initial state,
@@ -223,6 +220,7 @@ class MPCQuadProg(object):
         prob.solve(solver=cv.OSQP, warm_start=True, verbose=False)
         # prob.solve(warm_start=True, verbose=False)
         desiredInput = self.u[:,0].value + self.equilibriumInput
+        desiredInput = desiredInput.reshape(desiredInput.shape[0],-1)
         print(state)
         # find the rotor speed for each rotor
         motorSpeeds = Actuators()                
