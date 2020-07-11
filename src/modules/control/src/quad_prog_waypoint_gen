@@ -123,7 +123,6 @@ def mpc_problem_def(xInit, xr):
     for k in range(mpcHorizon):
         objective += cv.quad_form(x[:,k] - xr, Q) + cv.quad_form(u[:,k], R)
         constraints += [x[:,k+1] == A@x[:,k] + B@(u[:,k] + np.array([m*g, 0, 0, 0])) + Bg]
-        # constraints += [x[:,k+1] == A@x[:,k] + B@u[:,k] + Bg]
         constraints += [xmin <= x[:,k], x[:,k] <= xmax]
         constraints += [umin <= u[:,k], u[:,k] <= umax]
     objective += cv.quad_form(x[:,mpcHorizon] - xr, Uinf)

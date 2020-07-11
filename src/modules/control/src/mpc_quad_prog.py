@@ -109,13 +109,28 @@ class MPCQuadProg(object):
 
         # set up the MPC constraints
         D2R = self.PI/180
-        self.xmin = np.array(([-10, -10, 0, -5, -5, -5, 
-                        -45*D2R, -45*D2R, -90*D2R, -50*D2R, -50*D2R, -50*D2R]))
-        self.xmax = np.array(([10, 10, 15, 5, 5, 5,
-                        45*D2R, 45*D2R, 90*D2R, 50*D2R, 50*D2R, 50*D2R]))  
+        minVal, maxVal = self.find_min_max_waypoints()
+        posTolerance = 0.25 # [m]
+        angTolerance = 0.1 # [rad]
+        self.xmin = np.array(([minVal[0]-posTolerance, minVal[1]-posTolerance, minVal[2]-posTolerance, -5, -5, -5, 
+                        -45*D2R, -45*D2R, minVal[3]-angTolerance, -50*D2R, -50*D2R, -50*D2R]))
+        self.xmax = np.array(([maxVal[0]+posTolerance, maxVal[1]+posTolerance, maxVal[2]+posTolerance, 5, 5, 5,
+                        45*D2R, 45*D2R, maxVal[3]+angTolerance, 50*D2R, 50*D2R, 50*D2R]))  
         self.umin = np.array(([-self.m*self.g, -0.5, -0.5, -0.5]))
-        self.umax = np.array(([1.5*self.m*self.g, 0.5, 0.5, 0.5]))                   
-        
+        self.umax = np.array(([1.5*self.m*self.g, 0.5, 0.5, 0.5])) 
+
+    def find_min_max_waypoints(self):
+        """ Function to find the minimum and maximum waypoint values"""
+        # find the shape of the desiredPos array (equivalent to size() in Matlab)
+        arrayShape = np.shape(self.waypoints)  
+        # print(arrayShape[1])
+        minVal = np.zeros((arrayShape[1]))
+        maxVal = np.zeros((arrayShape[1]))
+        for i in range(arrayShape[1]):
+            minVal[i] = min(self.waypoints[:,i])
+            maxVal[i] = max(self.waypoints[:,i])
+
+        return minVal, maxVal 
     def mpc_problem_def(self, xInit, xr):
         """ Function to setup the MPC problem given the reference state, initial state,
             corresponding infinite horizon discrete lqr gain matrices, and constraints"""
@@ -124,7 +139,6 @@ class MPCQuadProg(object):
         for k in range(self.mpcHorizon):
             objective += cv.quad_form(self.x[:,k] - xr, self.Q) + cv.quad_form(self.u[:,k], self.R)
             constraints += [self.x[:,k+1] == self.A@self.x[:,k] + self.B@(self.u[:,k] + np.array([self.m*self.g, 0, 0, 0])) + self.Bg]
-            # constraints += [self.x[:,k+1] == self.A@self.x[:,k] + self.B@self.u[:,k] + self.Bg]
             constraints += [self.xmin <= self.x[:,k], self.x[:,k] <= self.xmax]
             constraints += [self.umin <= self.u[:,k], self.u[:,k] <= self.umax]
         objective += cv.quad_form(self.x[:,self.mpcHorizon] - xr, self.Uinf)
@@ -165,27 +179,7 @@ class MPCQuadProg(object):
 
     def calc_ref_state(self, currTime):
         """ Function to calculate the reference state given the current time"""
-        # find the closest index in desiredTimes corresponding to the current time
-        # nearestIdx = np.searchsorted(self.desiredTimes, currTime)
-
-        # if nearestIdx == 0:
-        #     nearestIdx = 1
-        # elif nearestIdx >= np.size(self.desiredTimes):
-        #     nearestIdx = np.size(self.desiredTimes)-1 
-        
-        # refState = np.array([self.desiredPos[nearestIdx,0],
-        #                     self.desiredPos[nearestIdx,1],
-        #                     self.desiredPos[nearestIdx,2],
-        #                     0,
-        #                     0,
-        #                     0,
-        #                     0,
-        #                     0,
-        #                     self.desiredPos[nearestIdx,3],
-        #                     0,
-        #                     0,
-        #                     0])
-        
+        # find the closest index in timeVec corresponding to the current time        
         nearestIdx = np.searchsorted(self.timeVec, currTime)
 
         if nearestIdx == 0:
@@ -218,10 +212,8 @@ class MPCQuadProg(object):
         xr = self.calc_ref_state(currTime)
         prob = self.mpc_problem_def(state, xr)
         prob.solve(solver=cv.OSQP, warm_start=True, verbose=False)
-        # prob.solve(warm_start=True, verbose=False)
         desiredInput = self.u[:,0].value + self.equilibriumInput
         desiredInput = desiredInput.reshape(desiredInput.shape[0],-1)
-        print(state)
         # find the rotor speed for each rotor
         motorSpeeds = Actuators()                
         motorSpeeds.angular_velocities = np.zeros((4,1))
