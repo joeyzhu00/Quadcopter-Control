@@ -112,7 +112,6 @@ xmin = np.array(([0, 0, 0, -5, -5, -5,
                   -45*D2R, -45*D2R, -90*D2R, -20*D2R, -20*D2R, -20*D2R]))
 xmax = np.array(([10, 10, 15, 5, 5, 5,
                   45*D2R, 45*D2R, 90*D2R, 20*D2R, 20*D2R, 20*D2R]))  
-maxMotorSpeed = 800 # rad/s
 umin = np.array(([-m*g, -0.1, -0.1, -0.1]))
 umax = np.array(([1.5*m*g, 0.1, 0.1, 0.1]))                   
 
@@ -137,7 +136,6 @@ def calc_ref_state(currTime):
     # find the closest index in desiredTimes corresponding to the current time
     nearestIdx = np.searchsorted(desiredTimes, currTime)
 
-    # if the 
     if nearestIdx == 0:
         nearestIdx = 1
     elif nearestIdx >= np.size(desiredTimes):

@@ -29,7 +29,7 @@ class MPCQuadProg(object):
         Iyy = 0.007 # [kg*m^2]
         Izz = 0.012 # [kg*m^2]
         gamma = self.thrustConstant / self.momentConstant
-        dt = 0.01   # [sec]
+        dt = 0.1   # [sec]
         L = 0.17    # [m]
         # state update matrix
         self.A = np.array([[1, 0, 0, dt, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -87,7 +87,10 @@ class MPCQuadProg(object):
                           [0, 5, 0, 0],
                           [0, 0, 5, 0],
                           [0, 0, 0, 0.00001]])
-
+        # self.R = np.array([[1, 0, 0, 0],
+        #                     [0, 1, 0, 0],
+        #                     [0, 0, 1, 0],
+        #                     [0, 0, 0, 1]])
         self.Uinf = linalg.solve_discrete_are(self.A, self.B, self.Q, self.R, None, None)
         self.dlqrGain = np.dot(np.linalg.inv(self.R + np.dot(self.B.T, np.dot(self.Uinf, self.B))), np.dot(self.B.T, np.dot(self.Uinf, self.A)))   
 
@@ -110,11 +113,11 @@ class MPCQuadProg(object):
         # set up the MPC constraints
         D2R = self.PI/180
         self.xmin = np.array(([-10, -10, 0, -5, -5, -5, 
-                        -45*D2R, -45*D2R, -90*D2R, -20*D2R, -20*D2R, -20*D2R]))
+                        -90*D2R, -90*D2R, -90*D2R, -50*D2R, -50*D2R, -50*D2R]))
         self.xmax = np.array(([10, 10, 15, 5, 5, 5,
-                        45*D2R, 45*D2R, 90*D2R, 20*D2R, 20*D2R, 20*D2R]))  
-        self.umin = np.array(([-self.m*self.g, -0.1, -0.1, -0.1]))
-        self.umax = np.array(([1.5*self.m*self.g, 0.1, 0.1, 0.1]))                   
+                        90*D2R, 90*D2R, 90*D2R, 50*D2R, 50*D2R, 50*D2R]))  
+        self.umin = np.array(([-self.m*self.g, -0.5, -0.5, -0.1]))
+        self.umax = np.array(([1.5*self.m*self.g, 0.5, 0.5, 0.1]))                   
         
     def mpc_problem_def(self, xInit, xr):
         """ Function to setup the MPC problem given the reference state, initial state,
@@ -166,27 +169,45 @@ class MPCQuadProg(object):
     def calc_ref_state(self, currTime):
         """ Function to calculate the reference state given the current time"""
         # find the closest index in desiredTimes corresponding to the current time
-        nearestIdx = np.searchsorted(self.desiredTimes, currTime)
+        # nearestIdx = np.searchsorted(self.desiredTimes, currTime)
 
-        # if the 
+        # if nearestIdx == 0:
+        #     nearestIdx = 1
+        # elif nearestIdx >= np.size(self.desiredTimes):
+        #     nearestIdx = np.size(self.desiredTimes)-1 
+        
+        # refState = np.array([self.desiredPos[nearestIdx,0],
+        #                     self.desiredPos[nearestIdx,1],
+        #                     self.desiredPos[nearestIdx,2],
+        #                     0,
+        #                     0,
+        #                     0,
+        #                     0,
+        #                     0,
+        #                     self.desiredPos[nearestIdx,3],
+        #                     0,
+        #                     0,
+        #                     0])
+        
+        nearestIdx = np.searchsorted(self.timeVec, currTime)
+
         if nearestIdx == 0:
             nearestIdx = 1
-        elif nearestIdx >= np.size(self.desiredTimes):
-            nearestIdx = np.size(self.desiredTimes)-1 
+        elif nearestIdx >= np.size(self.timeVec):
+            nearestIdx = np.size(self.timeVec)-1 
         
-        refState = np.array([self.desiredPos[nearestIdx,0],
-                            self.desiredPos[nearestIdx,1],
-                            self.desiredPos[nearestIdx,2],
+        refState = np.array([self.waypoints[nearestIdx,0],
+                            self.waypoints[nearestIdx,1],
+                            self.waypoints[nearestIdx,2],
                             0,
                             0,
                             0,
                             0,
                             0,
-                            self.desiredPos[nearestIdx,3],
+                            self.waypoints[nearestIdx,3],
                             0,
                             0,
                             0])
-        
         return refState
 
     def ctrl_update(self, state):
@@ -197,12 +218,12 @@ class MPCQuadProg(object):
         # calculate the time difference
         # time now subtracted by start time
         currTime = rospy.get_time() - self.startTime
-        print(currTime)
         xr = self.calc_ref_state(currTime)
         prob = self.mpc_problem_def(state, xr)
         prob.solve(solver=cv.OSQP, warm_start=True, verbose=False)
+        # prob.solve(warm_start=True, verbose=False)
         desiredInput = self.u[:,0].value + self.equilibriumInput
-        print(desiredInput)
+        print(state)
         # find the rotor speed for each rotor
         motorSpeeds = Actuators()                
         motorSpeeds.angular_velocities = np.zeros((4,1))
