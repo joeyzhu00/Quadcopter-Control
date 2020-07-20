@@ -37,7 +37,7 @@ Roll/Pitch PD gains based off assumption that the quadcopter can be approximated
 
 ![pd_control_step_response](https://user-images.githubusercontent.com/29212589/85929927-57128900-b86d-11ea-81c3-26af6c4765b1.png)
 
-## MPC Control 
+## MPC - Quadratic Program 
 Linear quadratic program with gains from the infinite horizon discrete LQR controller. XYZ-position control is available but the yaw control needs a lot of work. It is very sensitive to the MPC horizon, high computation speed is a must when using the MPC. 
 
 ## Optimal Minimum Jerk Trajectory
