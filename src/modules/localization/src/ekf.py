@@ -55,15 +55,16 @@ class ekfStateEstimation(object):
 
 
     def imu_callback(self, imuMsg):
-        """Callback for the imu input"""
-        imuEstimate = self.ekf_estimation(imuMsg)
+        """ Callback for the imu input"""
+        imuEstimate = self.imu_ekf_estimation(imuMsg)
         self.kfPublisher.publish(imuEstimate)
     
-    def odom_callback(self, poseMsg):
-        """ Callback for the odom input"""
+    def pose_callback(self, poseMsg):
+        """ Callback for the pose input"""
 
     def ctrl_input_callback(self, ctrlInput):
-        
+        """ Callback for the control input"""
+
     def quad_nonlinear_eom(state, input, dt):
         """ Function for nonlinear equations of motion of quadcopter """
         # RPY position and rate update
@@ -102,10 +103,12 @@ class ekfStateEstimation(object):
 
         return nonLinState
 
-    def ekf_estimation(self, imuMsg):
-        """Use kf to create a state estimate"""
-        # TODO: Include more states, currently only includes orientation and angular velocity states
+    def pose_ekf_estimation(self, poseMsg):
+        """ Use ekf to create a state estimate when given pose and control input data"""
 
+    def imu_ekf_estimation(self, imuMsg):
+        """ Use ekf to create a state estimate when given imu and control input data"""
+        # convert quat to rpy angles
         (imuRoll, imuPitch, imuYaw) = euler_from_quaternion([imuMsg.orientation.x, imuMsg.orientation.y, imuMsg.orientation.z, imuMsg.orientation.w])
         
         # get the current time
@@ -117,8 +120,16 @@ class ekfStateEstimation(object):
         else:
             dt = self.initTimeDelta
 
-        # system measurements
-        z = np.array([imuRoll, imuPitch, imuYaw,imuMsg.angular_velocity.x, imuMsg.angular_velocity.y, imuMsg.angular_velocity.z]).reshape(-1,1)
+        # system measurements (TODO: need to rotate x, y, z acceleration into inertial frame)
+        z = np.array(([self.previousPosteriorState[3] + imuMsg.linear_acceleration.x*dt],
+                      [self.previousPosteriorState[3] + imuMsg.linear_acceleration.y*dt],
+                      [self.previousPosteriorState[3] + imuMsg.linear_acceleration.z*dt],
+                      [imuRoll],
+                      [imuPitch],
+                      [imuYaw],
+                      [imuMsg.angular_velocity.x],
+                      [imuMsg.angular_velocity.y],
+                      [imuMsg.angular_velocity.z]]))
 
         # prior state 
         xp = quad_nonlinear_eom(self.previousPosteriorState, self.controlInput, dt)
@@ -150,9 +161,17 @@ class ekfStateEstimation(object):
                       [0, 0, dt/self.Iyy, 0],
                       [0, 0, 0, dt/self.Izz]])
         # measurement matrix
-        H = np.identity(6)
+        H = np.array([[0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]])
         # measurement noise partial derivative matrix
-        M = np.identity(6)
+        M = np.identity(9)
         # process noise partial derivative matrix
         L = np.identity(12)
 
@@ -160,7 +179,7 @@ class ekfStateEstimation(object):
         V = self.processVariance*np.identity(12)
 
         # measurement Variance
-        W = self.measurementVariance*np.identity(6)
+        W = self.measurementVariance*np.identity(9)
 
         # prior covariance
         Pp = np.dot(A, np.dot(self.previousPosteriorState, np.transpose(A))) + np.dot(L, np.dot(V, np.transpose(L)))
@@ -185,7 +204,7 @@ class ekfStateEstimation(object):
         return self.odom_msg_creation(xStateUpdate)
 
     def odom_msg_creation(self, xState):
-        """Temporary function to create an odom message given state data"""
+        """ Temporary function to create an odom message given state data"""
         createdImuMsg = Imu()
         
         # orientation
@@ -201,7 +220,7 @@ class ekfStateEstimation(object):
         return createdImuMsg
 
     def data_converter(self):
-        """Subscribe to the IMU and Pose data"""
+        """ Subscribe to the IMU and Pose data"""
         # TODO: Add odometry data subscriber
         rospy.Subscriber("/hummingbird/ground_truth/imu", Imu, self.imu_callback, queue_size = 1)
         # rospy.Subscriber("/imu", Imu, self.imu_callback, queue_size = 1)
