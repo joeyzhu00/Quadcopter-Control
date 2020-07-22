@@ -4,43 +4,38 @@ from __future__ import division
 import rospy
 import numpy as np
 from nav_msgs.msg import Odometry
-from geometry_msgs.msg import Quaternion
+from geometry_msgs.msg import Quaternion, Pose
 from sensor_msgs.msg import Imu
 from tf.transformations import euler_from_quaternion, quaternion_from_euler
+from mav_msgs.msg import Actuators
 
 """
-NOTE: Estimates the orientation and angular velocity of the quadcopter with use of the gyroscope and the orientation sensor. 
+TODO: Add noise model for the position sensing
 
-TODO: Add noise model for the gyroscope and the accelerometer, eventually expand to position estimation as well
-
-    Subscribes
+    Subscribed to
     ----------
-    Topic: /hummingbird/ground_truth/imu
+    Topic: /hummingbird/imu
+           /hummingbird/ground_truth/pose (will be replaced with gps reading in real quad)
+           /hummingbird/motor_speed 
 
     Publishes
     ---------
-    Topic: /localization/imu
+    Topic: /localization/odom
 
 """
 
-class ekfStateEstimation(object):
-    """Takes IMU data and publishes an orientation estimate 
-    TODO: Include pose estimation"""
-    
+class SimulationEkfStateEstimation(object):
+    """ Takes IMU, position data, and motor speed data and generates a state estimate based off an Extended Kalman Filter"""    
     def __init__(self):
-        """TODO: Include a launch file or xml file to grab state and covariance matrices from"""
         self.ekfPublisher = rospy.Publisher("/localization/odom", Odometry, queue_size = 1)
-        self.receivedImuMsg = Imu()
-        self.receivedImuQuat = Quaternion()
-
         # initialize initial state covariance matrix
-        self.previousPm = np.identity(12)*0.01
+        self.previousPm = np.identity(12)*0.1
 
         # initialize the previous X State
         self.previousXm = np.zeros((12,1))
 
         self.processVariance = 0.01
-        self.measurementVariance = 0.01
+        self.measurementVariance = 0.05
 
         self.firstMeasurementPassed = False
         self.initTimeDelta = 0.01
@@ -52,7 +47,15 @@ class ekfStateEstimation(object):
         self.Iyy = 0.007 # [kg*m^2]
         self.Izz = 0.012 # [kg*m^2]
         self.L = 0.17    # [m]
+        self.thrustConstant = 8.54858e-06
+        self.momentConstant = 1.6e-2
 
+        # matrix mapping squared motor angular velocity to force/torque control input
+        self.speedAllocationMatrix = np.array([[self.thrustConstant, self.thrustConstant, self.thrustConstant, self.thrustConstant],
+                                               [0,                 self.L*self.thrustConstant,  0,                (-1)*self.L*self.thrustConstant],
+                                               [(-1)*self.L*self.thrustConstant,  0,          self.L*self.thrustConstant, 0],
+                                               [self.momentConstant, (-1)*self.momentConstant, self.momentConstant, (-1)*self.momentConstant]])
+        self.controlInput = np.zeros((4,1))
 
     def imu_callback(self, imuMsg):
         """ Callback for the imu input"""
@@ -61,9 +64,18 @@ class ekfStateEstimation(object):
     
     def pose_callback(self, poseMsg):
         """ Callback for the pose input"""
+        poseEstimate = self.pose_ekf_estimation(poseMsg)
+        self.ekfPublisher.publish(poseEstimate)
 
-    def ctrl_input_callback(self, ctrlInput):
-        """ Callback for the control input"""
+    def motor_speed_callback(self, motorSpeeds):
+        """ Callback for the motor speeds"""
+        motorSpeedSquaredArray = np.array(([pow(motorSpeeds.angular_velocities[0], 2)],
+                                           [pow(motorSpeeds.angular_velocities[1], 2)],
+                                           [pow(motorSpeeds.angular_velocities[2], 2)],
+                                           [pow(motorSpeeds.angular_velocities[3], 2)]))
+        # map the squared motor speeds to forces and torques
+        self.controlInput = np.dot(self.speedAllocationMatrix, motorSpeedSquaredArray)
+        
 
     def quad_nonlinear_eom(self, state, input, dt):
         """ Function for nonlinear equations of motion of quadcopter """
@@ -97,7 +109,7 @@ class ekfStateEstimation(object):
                                    [np.sin(prevAngPos[2,0])*np.sin(prevAngPos[1,0])*np.cos(prevAngPos[0,0]) - np.cos(prevAngPos[2,0])*np.sin(prevAngPos[0,0])],
                                    [np.cos(prevAngPos[1,0])*np.cos(prevAngPos[0,0])]))
         
-        linAccel = gravityComponent + ((input[0,0] + self.m*self.g)/self.m)*rotMatThirdCol
+        linAccel = gravityComponent + ((input[0,0])/self.m)*rotMatThirdCol
         linVel = prevLinVel + linAccel*dt
         linPos = prevLinPos + linVel*dt
         nonLinState = np.vstack((linPos, linVel, angPos, angVel))
@@ -106,6 +118,86 @@ class ekfStateEstimation(object):
 
     def pose_ekf_estimation(self, poseMsg):
         """ Use ekf to create a state estimate when given pose and control input data"""
+        # get the current time
+        currentTime = rospy.get_time()
+
+        # calculate the time delta b/t previous measurement and current measurement
+        if self.firstMeasurementPassed:
+            dt = currentTime - self.previousTime
+        else:
+            dt = self.initTimeDelta
+            
+        # system measurements, stuff linear acceleration into linear velocity state
+        z = np.array(([poseMsg.position.x],
+                      [poseMsg.position.y],
+                      [poseMsg.position.z]))
+
+        # prior state 
+        xp = self.quad_nonlinear_eom(self.previousXm, self.controlInput, dt)
+
+        # state update matrix
+        A = np.array([[1, 0, 0, dt, 0, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 1, 0, 0, dt, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 1, 0, 0, dt, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 1, 0, 0, 0, dt*self.g, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 1, 0, -dt*self.g, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 1, 0, 0, dt, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, dt, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, dt],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]])
+        # input matrix
+        B = np.array([[0, 0, 0, 0],
+                      [0, 0, 0, 0],
+                      [0, 0, 0, 0],
+                      [0, 0, 0, 0],
+                      [0, 0, 0, 0],
+                      [dt/self.m, 0, 0, 0],
+                      [0, 0, 0, 0],
+                      [0, 0, 0, 0],
+                      [0, 0, 0, 0],
+                      [0, dt/self.Ixx, 0, 0],
+                      [0, 0, dt/self.Iyy, 0],
+                      [0, 0, 0, dt/self.Izz]])
+        # measurement matrix
+        H = np.array([[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]])
+
+        # measurement noise partial derivative matrix
+        M = np.identity(3)
+        # process noise partial derivative matrix
+        L = np.identity(12)
+
+        # process variance matrix
+        V = self.processVariance*np.identity(12)
+
+        # measurement Variance
+        W = self.measurementVariance*np.identity(3)
+
+        # prior covariance
+        Pp = np.dot(A, np.dot(self.previousPm, np.transpose(A))) + np.dot(L, np.dot(V, np.transpose(L)))
+
+        # kalman gain
+        K = np.dot(Pp, np.dot(np.transpose(H), np.linalg.inv(np.dot(H, np.dot(Pp, np.transpose(H))) + np.dot(M, np.dot(W, np.transpose(M))))))
+
+        # state matrix update
+        xm = xp + np.dot(K, (z-np.dot(H, xp)))
+        self.previousXm = xm
+
+        # posterior state update
+        Pm = np.dot(np.identity(12) - np.dot(K, H), Pp)
+        self.previousPm = Pm
+
+        # first pass has been completed, time delta can be updated
+        self.firstMeasurementPassed = True
+
+        # update the previous time
+        self.previousTime = currentTime
+
+        return self.odom_msg_creation(xm)
 
     def imu_ekf_estimation(self, imuMsg):
         """ Use ekf to create a state estimate when given imu and control input data"""
@@ -137,12 +229,14 @@ class ekfStateEstimation(object):
                                  [(-1)*imuMsg.linear_acceleration.z]))
         # rotate linear acceleration in body frame into linear acceleration in inertial frame
         linAccelInertial = np.dot(N_R_b, linAccelBody)
-        self.controlInput = np.zeros((4,1))
 
+        if self.controlInput[0,0] <= 0.05:
+            linAccelInertial[2,0] = 0
+            
         # system measurements, stuff linear acceleration into linear velocity state
         z = np.array(([self.previousXm[3,0] + linAccelInertial[0,0]*dt],
                       [self.previousXm[4,0] + linAccelInertial[1,0]*dt],
-                      [self.previousXm[5,0] + (linAccelInertial[2,0] + self.g)*dt],
+                      [self.previousXm[5,0] + linAccelInertial[2,0]*dt],
                       [imuRoll],
                       [imuPitch],
                       [imuYaw],
@@ -243,21 +337,19 @@ class ekfStateEstimation(object):
         createdOdomMsg.twist.twist.linear.x = xm[3]
         createdOdomMsg.twist.twist.linear.y = xm[4]
         createdOdomMsg.twist.twist.linear.z = xm[5]
-
-        createdOdomMsg.header.frame_id = 'body'
         
         return createdOdomMsg
 
     def data_converter(self):
-        """ Subscribe to the IMU and Pose data"""
-        # TODO: Add odometry data subscriber
-        rospy.Subscriber("/hummingbird/ground_truth/imu", Imu, self.imu_callback, queue_size = 1)
-        # rospy.Subscriber("/imu", Imu, self.imu_callback, queue_size = 1)
+        """ Subscribe to the IMU, pose, and motor speed data"""
+        rospy.Subscriber("/hummingbird/imu", Imu, self.imu_callback, queue_size = 1)
+        rospy.Subscriber("/hummingbird/ground_truth/pose", Pose, self.pose_callback, queue_size = 1)
+        rospy.Subscriber("/hummingbird/motor_speed", Actuators, self.motor_speed_callback, queue_size = 1)
         rospy.spin()
 
 def main():
     rospy.init_node("ekf_node", anonymous = False)
-    ekfEstimator = ekfStateEstimation()
+    ekfEstimator = SimulationEkfStateEstimation()
 
     try:
         ekfEstimator.data_converter()
