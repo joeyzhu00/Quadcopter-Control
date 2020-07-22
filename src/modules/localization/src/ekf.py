@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 from __future__ import print_function
 from __future__ import division
 import rospy
@@ -29,15 +29,15 @@ class ekfStateEstimation(object):
     
     def __init__(self):
         """TODO: Include a launch file or xml file to grab state and covariance matrices from"""
-        self.kfPublisher = rospy.Publisher("/localization/imu", Imu, queue_size = 1)
+        self.ekfPublisher = rospy.Publisher("/localization/odom", Odometry, queue_size = 1)
         self.receivedImuMsg = Imu()
         self.receivedImuQuat = Quaternion()
 
         # initialize initial state covariance matrix
-        self.previousPosteriorState = np.identity(12)*0.01
+        self.previousPm = np.identity(12)*0.01
 
         # initialize the previous X State
-        self.previousXState = np.zeros((12,1))
+        self.previousXm = np.zeros((12,1))
 
         self.processVariance = 0.01
         self.measurementVariance = 0.01
@@ -46,7 +46,7 @@ class ekfStateEstimation(object):
         self.initTimeDelta = 0.01
 
         # constants
-        self.g = 9.81    # [m/s^2]
+        self.g = 9.8     # [m/s^2]
         self.m = 0.716   # [kg]
         self.Ixx = 0.007 # [kg*m^2]
         self.Iyy = 0.007 # [kg*m^2]
@@ -57,7 +57,7 @@ class ekfStateEstimation(object):
     def imu_callback(self, imuMsg):
         """ Callback for the imu input"""
         imuEstimate = self.imu_ekf_estimation(imuMsg)
-        self.kfPublisher.publish(imuEstimate)
+        self.ekfPublisher.publish(imuEstimate)
     
     def pose_callback(self, poseMsg):
         """ Callback for the pose input"""
@@ -65,40 +65,41 @@ class ekfStateEstimation(object):
     def ctrl_input_callback(self, ctrlInput):
         """ Callback for the control input"""
 
-    def quad_nonlinear_eom(state, input, dt):
+    def quad_nonlinear_eom(self, state, input, dt):
         """ Function for nonlinear equations of motion of quadcopter """
         # RPY position and rate update
-        prevAngPos = np.array(([state[6]], 
-                            [state[7]], 
-                            [state[8]]))
-        prevAngVel = np.array(([state[9]],
-                            [state[10]], 
-                            [state[11]]))                        
-        angAccel = np.array(([(input[1] + self.Iyy*prevAngVel[1,0]*prevAngVel[2,0] - self.Izz*prevAngVel[1,0]*prevAngVel[2,0])/self.Ixx],
-                            [(input[2] - self.Ixx*prevAngVel[0,0]*prevAngVel[2,0] + self.Izz*prevAngVel[0,0]*prevAngVel[2,0])/self.Iyy],
-                            [(input[3] + self.Ixx*prevAngVel[0,0]*prevAngVel[1,0] - self.Iyy*prevAngVel[0,0]*prevAngVel[1,0])/self.Izz]))
+        prevAngPos = np.array(([state[6], 
+                                state[7], 
+                                state[8]]))
+        prevAngVel = np.array(([state[9],
+                                state[10], 
+                                state[11]]))  
+        
+        angAccel = np.array(([(input[1,0] + self.Iyy*prevAngVel[1,0]*prevAngVel[2,0] - self.Izz*prevAngVel[1,0]*prevAngVel[2,0])/self.Ixx],
+                             [(input[2,0] - self.Ixx*prevAngVel[0,0]*prevAngVel[2,0] + self.Izz*prevAngVel[0,0]*prevAngVel[2,0])/self.Iyy],
+                             [(input[3,0] + self.Ixx*prevAngVel[0,0]*prevAngVel[1,0] - self.Iyy*prevAngVel[0,0]*prevAngVel[1,0])/self.Izz]))
         angVel = prevAngVel + angAccel*dt
         angPos = prevAngPos + angVel*dt
-
         # XYZ position and rate update
-        prevLinPos = np.array(([state[0]], 
-                            [state[1]], 
-                            [state[2]]))
-        prevLinVel = np.array(([state[3]],
-                            [state[4]], 
-                            [state[5]]))  
+        prevLinPos = np.array(([state[0], 
+                                state[1], 
+                                state[2]]))
+        prevLinVel = np.array(([state[3],
+                                state[4], 
+                                state[5]]))  
 
-        gravityComponent = np.array(([0],
+        gravityComponent = np.array(([[0],
                                     [0],
-                                    [-self.g]))
+                                    [-self.g]]))
+        
         # 1-2-3 rotation matrix of inertial in body frame
         rotMatThirdCol = np.array(([np.cos(prevAngPos[2,0])*np.sin(prevAngPos[1,0])*np.cos(prevAngPos[0,0]) + np.sin(prevAngPos[2,0])*np.sin(prevAngPos[0,0])],
-                                [np.sin(prevAngPos[2,0])*np.sin(prevAngPos[1,0])*np.cos(prevAngPos[0,0]) - np.cos(prevAngPos[2,0])*np.sin(prevAngPos[0,0])],
-                                [np.cos(prevAngPos[1,0])*np.cos(prevAngPos[0,0])]))
-        linAccel = gravityComponent + ((input[0] + self.m*self.g)/self.m)*rotMatThirdCol
+                                   [np.sin(prevAngPos[2,0])*np.sin(prevAngPos[1,0])*np.cos(prevAngPos[0,0]) - np.cos(prevAngPos[2,0])*np.sin(prevAngPos[0,0])],
+                                   [np.cos(prevAngPos[1,0])*np.cos(prevAngPos[0,0])]))
+        
+        linAccel = gravityComponent + ((input[0,0] + self.m*self.g)/self.m)*rotMatThirdCol
         linVel = prevLinVel + linAccel*dt
         linPos = prevLinPos + linVel*dt
-
         nonLinState = np.vstack((linPos, linVel, angPos, angVel))
 
         return nonLinState
@@ -120,19 +121,37 @@ class ekfStateEstimation(object):
         else:
             dt = self.initTimeDelta
 
-        # system measurements (TODO: need to rotate x, y, z acceleration into inertial frame)
-        z = np.array(([self.previousPosteriorState[3] + imuMsg.linear_acceleration.x*dt],
-                      [self.previousPosteriorState[3] + imuMsg.linear_acceleration.y*dt],
-                      [self.previousPosteriorState[3] + imuMsg.linear_acceleration.z*dt],
+        
+        # rotate the acceleration measurements to inertial frame 
+        prevRoll = self.previousXm[6,0]
+        prevPitch = self.previousXm[7,0]
+        prevYaw = self.previousXm[8,0]
+
+        # body in inertial frame 1-2-3 rotation
+        N_R_b = np.array(([np.cos(prevYaw)*np.cos(prevPitch), np.cos(prevYaw)*np.sin(prevPitch)*np.sin(prevRoll) - np.sin(prevYaw)*np.cos(prevRoll), np.cos(prevYaw)*np.sin(prevPitch)*np.cos(prevRoll) + np.sin(prevRoll)*np.sin(prevYaw)],
+                          [np.sin(prevYaw)*np.cos(prevPitch), np.sin(prevYaw)*np.sin(prevPitch)*np.sin(prevRoll) + np.cos(prevRoll)*np.cos(prevYaw), np.sin(prevYaw)*np.sin(prevPitch)*np.cos(prevRoll) - np.cos(prevYaw)*np.sin(prevRoll)],
+                          [(-1)*np.sin(prevPitch), np.cos(prevPitch)*np.sin(prevRoll), np.cos(prevPitch)*np.cos(prevRoll)]))
+
+        linAccelBody = np.array(([imuMsg.linear_acceleration.x],
+                                 [imuMsg.linear_acceleration.y],
+                                 [(-1)*imuMsg.linear_acceleration.z]))
+        # rotate linear acceleration in body frame into linear acceleration in inertial frame
+        linAccelInertial = np.dot(N_R_b, linAccelBody)
+        self.controlInput = np.zeros((4,1))
+
+        # system measurements, stuff linear acceleration into linear velocity state
+        z = np.array(([self.previousXm[3,0] + linAccelInertial[0,0]*dt],
+                      [self.previousXm[4,0] + linAccelInertial[1,0]*dt],
+                      [self.previousXm[5,0] + (linAccelInertial[2,0] + self.g)*dt],
                       [imuRoll],
                       [imuPitch],
                       [imuYaw],
                       [imuMsg.angular_velocity.x],
                       [imuMsg.angular_velocity.y],
-                      [imuMsg.angular_velocity.z]]))
+                      [imuMsg.angular_velocity.z]))
 
         # prior state 
-        xp = quad_nonlinear_eom(self.previousPosteriorState, self.controlInput, dt)
+        xp = self.quad_nonlinear_eom(self.previousXm, self.controlInput, dt)
 
         # state update matrix
         A = np.array([[1, 0, 0, dt, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -182,18 +201,18 @@ class ekfStateEstimation(object):
         W = self.measurementVariance*np.identity(9)
 
         # prior covariance
-        Pp = np.dot(A, np.dot(self.previousPosteriorState, np.transpose(A))) + np.dot(L, np.dot(V, np.transpose(L)))
+        Pp = np.dot(A, np.dot(self.previousPm, np.transpose(A))) + np.dot(L, np.dot(V, np.transpose(L)))
 
         # kalman gain
         K = np.dot(Pp, np.dot(np.transpose(H), np.linalg.inv(np.dot(H, np.dot(Pp, np.transpose(H))) + np.dot(M, np.dot(W, np.transpose(M))))))
 
         # state matrix update
-        xStateUpdate = xp + np.dot(K, (z-np.dot(H, xp)))
-        self.previousXState = xStateUpdate
+        xm = xp + np.dot(K, (z-np.dot(H, xp)))
+        self.previousXm = xm
 
         # posterior state update
-        posteriorStateUpdate = np.dot(np.identity(12) - np.dot(K, H), Pp)
-        self.previousPosteriorState = posteriorStateUpdate
+        Pm = np.dot(np.identity(12) - np.dot(K, H), Pp)
+        self.previousPm = Pm
 
         # first pass has been completed, time delta can be updated
         self.firstMeasurementPassed = True
@@ -201,23 +220,33 @@ class ekfStateEstimation(object):
         # update the previous time
         self.previousTime = currentTime
 
-        return self.odom_msg_creation(xStateUpdate)
+        return self.odom_msg_creation(xm)
 
-    def odom_msg_creation(self, xState):
+    def odom_msg_creation(self, xm):
         """ Temporary function to create an odom message given state data"""
-        createdImuMsg = Imu()
+        createdOdomMsg = Odometry()
         
         # orientation
-        (createdImuMsg.orientation.x, createdImuMsg.orientation.y, createdImuMsg.orientation.z, createdImuMsg.orientation.w) = quaternion_from_euler(xState.item(0), xState.item(1), xState.item(2))
+        (createdOdomMsg.pose.pose.orientation.x, createdOdomMsg.pose.pose.orientation.y, createdOdomMsg.pose.pose.orientation.z, createdOdomMsg.pose.pose.orientation.w) = quaternion_from_euler(xm[6], xm[7], xm[8])
         
         # angular velocity
-        createdImuMsg.angular_velocity.x = xState.item(3)
-        createdImuMsg.angular_velocity.y = xState.item(4)
-        createdImuMsg.angular_velocity.z = xState.item(5)
+        createdOdomMsg.twist.twist.angular.x = xm[9]
+        createdOdomMsg.twist.twist.angular.y = xm[10]
+        createdOdomMsg.twist.twist.angular.z = xm[11]
         
-        createdImuMsg.header.frame_id = 'body'
-        # add covariance data
-        return createdImuMsg
+        # position
+        createdOdomMsg.pose.pose.position.x = xm[0]
+        createdOdomMsg.pose.pose.position.y = xm[1]
+        createdOdomMsg.pose.pose.position.z = xm[2]
+
+        # linear velocity
+        createdOdomMsg.twist.twist.linear.x = xm[3]
+        createdOdomMsg.twist.twist.linear.y = xm[4]
+        createdOdomMsg.twist.twist.linear.z = xm[5]
+
+        createdOdomMsg.header.frame_id = 'body'
+        
+        return createdOdomMsg
 
     def data_converter(self):
         """ Subscribe to the IMU and Pose data"""
