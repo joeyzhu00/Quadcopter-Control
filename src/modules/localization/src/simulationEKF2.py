@@ -12,6 +12,8 @@ from mav_msgs.msg import Actuators
 """
 TODO: Add noise model for the position sensing
 
+NOTE: The simulation IMU does not take the body kinematics into account (control input acceleration will not affect the simulated IMU readings)
+
     Subscribed to
     ----------
     Topic: /hummingbird/imu
@@ -35,7 +37,7 @@ class SimulationEkfStateEstimation(object):
         # initialize the previous X State
         self.previousXm = np.zeros((15,1))
 
-        self.processVariance = 0.01
+        self.processVariance = 0.001
         self.measurementVariance = 0.01
 
         self.firstMeasurementPassed = False
@@ -87,16 +89,16 @@ class SimulationEkfStateEstimation(object):
         prevAngVel = np.array(([state[12],
                                 state[13], 
                                 state[14]]))  
-        
+        print(prevAngPos)
         # angAccel = np.array(([(input[1,0] + self.Iyy*prevAngVel[1,0]*prevAngVel[2,0] - self.Izz*prevAngVel[1,0]*prevAngVel[2,0])/self.Ixx],
         #                      [(input[2,0] - self.Ixx*prevAngVel[0,0]*prevAngVel[2,0] + self.Izz*prevAngVel[0,0]*prevAngVel[2,0])/self.Iyy],
         #                      [(input[3,0] + self.Ixx*prevAngVel[0,0]*prevAngVel[1,0] - self.Iyy*prevAngVel[0,0]*prevAngVel[1,0])/self.Izz]))
         angAccel = np.array(([(self.Iyy*prevAngVel[1,0]*prevAngVel[2,0] - self.Izz*prevAngVel[1,0]*prevAngVel[2,0])/self.Ixx],
                              [((-1)*self.Ixx*prevAngVel[0,0]*prevAngVel[2,0] + self.Izz*prevAngVel[0,0]*prevAngVel[2,0])/self.Iyy],
                              [(self.Ixx*prevAngVel[0,0]*prevAngVel[1,0] - self.Iyy*prevAngVel[0,0]*prevAngVel[1,0])/self.Izz]))
-                             
         angVel = prevAngVel + angAccel*dt
         angPos = prevAngPos + angVel*dt + 0.5*angAccel*pow(dt,2)
+        # print(angPos)
 
         # XYZ position and rate update
         prevLinPos = np.array(([state[0], 
@@ -118,8 +120,7 @@ class SimulationEkfStateEstimation(object):
         if self.controlInput[0,0] <= 0.05:
             gravityComponent[2,0] = 0
 
-        print(input[0,0]/self.m*rotMatThirdCol)
-        linAccel = gravityComponent + ((input[0,0])/self.m)*rotMatThirdCol
+        linAccel = gravityComponent + (input[0,0]/self.m)*rotMatThirdCol
         linVel = prevLinVel + linAccel*dt
         linPos = prevLinPos + linVel*dt + 0.5*linAccel*pow(dt,2)
         nonLinState = np.vstack((linPos, linVel, linAccel, angPos, angVel))
@@ -216,6 +217,9 @@ class SimulationEkfStateEstimation(object):
                                  [(-1)*imuMsg.linear_acceleration.z]))
         # rotate linear acceleration in body frame into linear acceleration in inertial frame
         linAccelInertial = np.dot(N_R_b, linAccelBody)
+        # simulation doesn't take body kinematics into account, need to cancel out gravity component with input
+        # NOTE: REMOVE THIS FOR ACTUAL EKF
+        linAccelInertial[2,0] = linAccelInertial[2,0] + (self.controlInput[0,0]/self.m)*np.cos(prevPitch)*np.cos(prevRoll)
 
         if self.controlInput[0,0] <= 0.05:
             linAccelInertial[2,0] = 0
