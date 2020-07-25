@@ -164,7 +164,7 @@ def quad_nonlinear_eom(state, input):
     prevAngVel = np.array(([state[9]],
                            [state[10]], 
                            [state[11]]))                        
-    angAccel = np.array(([(input[1] + Iyy*prevAngVel[1,0]*prevAngVel[2,0] - Izz*prevAngVel[1,0]*prevAngVel[2,0])/Ixx],
+    angAccel = np.array(([(input[1] + Iyy*prevAngVel[1,0]*prevAngVel[0,0] - Izz*prevAngVel[1,0]*prevAngVel[2,0])/Ixx],
                          [(input[2] - Ixx*prevAngVel[0,0]*prevAngVel[2,0] + Izz*prevAngVel[0,0]*prevAngVel[2,0])/Iyy],
                          [(input[3] + Ixx*prevAngVel[0,0]*prevAngVel[1,0] - Iyy*prevAngVel[0,0]*prevAngVel[1,0])/Izz]))
     angVel = prevAngVel + angAccel*dt

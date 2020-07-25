@@ -155,7 +155,8 @@ class InfDiscreteLQR(object):
     
     def dlqr_converter(self):
         """ Subscribe to the estimator """
-        rospy.Subscriber("/hummingbird/ground_truth/odometry", Odometry, self.state_update, queue_size = 1)
+        # rospy.Subscriber("/hummingbird/ground_truth/odometry", Odometry, self.state_update, queue_size = 1)
+        rospy.Subscriber("/localization/odom", Odometry, self.state_update, queue_size = 1)
         rospy.spin()
 
 def main():
