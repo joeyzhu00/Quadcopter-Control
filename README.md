@@ -1,6 +1,6 @@
 # Quadcopter Control
 Testing out different control laws for quadcopter control, currently have the following features:
-* infinite discrete linear quadratic regulator
+* infinite horizon discrete linear quadratic regulator
 * PD controller
 * MPC with linear quadratic programming (yaw authority basically nonexistent, needs tuning)
 * minimum jerk trajectory generator 
