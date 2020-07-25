@@ -1,0 +1,6 @@
+<launch>
+    <!-- launch the simulation ekf -->
+    <node type="simulation_EKF.py" pkg="localization" name="ekf_node" output="screen">
+    </node>
+
+</launch>

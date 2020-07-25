@@ -160,7 +160,7 @@ class InfDiscreteLQR(object):
         rospy.spin()
 
 def main():
-    rospy.init_node("dlqr_node", anonymous = False)
+    rospy.init_node("inf_dlqr_node", anonymous = False)
     dlqrOperator = InfDiscreteLQR()
 
     try:

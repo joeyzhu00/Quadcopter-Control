@@ -1,0 +1,8 @@
+<launch>
+    <!-- launch the simulation ekf -->
+    <include file="$(find localization)/launch/simulation_ekf.launch" />
+    <!-- launch the pd controller -->
+    <node type="pd_control.py" pkg="control" name="pd_node" output="screen">
+    </node>
+
+</launch>
