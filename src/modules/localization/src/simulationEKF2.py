@@ -37,8 +37,8 @@ class SimulationEkfStateEstimation(object):
         # initialize the previous X State
         self.previousXm = np.zeros((15,1))
 
-        self.processVariance = 0.001
-        self.measurementVariance = 0.01
+        self.processVariance = 0.3
+        self.measurementVariance = 0.001
 
         self.firstMeasurementPassed = False
         self.initTimeDelta = 0.01
@@ -60,6 +60,10 @@ class SimulationEkfStateEstimation(object):
                                                [self.momentConstant, (-1)*self.momentConstant, self.momentConstant, (-1)*self.momentConstant]])
         self.controlInput = np.zeros((4,1))
 
+        # logic to reduce position measurement rate to 10 Hz
+        self.positionCallbackRateCount = 0
+        self.positionCallbackRate = 10 # every 10th measurement
+
     def imu_callback(self, imuMsg):
         """ Callback for the imu input"""
         imuEstimate = self.imu_ekf_estimation(imuMsg)
@@ -67,8 +71,11 @@ class SimulationEkfStateEstimation(object):
     
     def pose_callback(self, poseMsg):
         """ Callback for the pose input"""
-        poseEstimate = self.pose_ekf_estimation(poseMsg)
-        self.ekfPublisher.publish(poseEstimate)
+        # ekf on every 10th measurement 
+        self.positionCallbackRateCount = self.positionCallbackRateCount + 1
+        if not (self.positionCallbackRateCount % self.positionCallbackRate):
+            poseEstimate = self.pose_ekf_estimation(poseMsg)
+            self.ekfPublisher.publish(poseEstimate)
 
     def motor_speed_callback(self, motorSpeeds):
         """ Callback for the motor speeds"""
@@ -89,16 +96,16 @@ class SimulationEkfStateEstimation(object):
         prevAngVel = np.array(([state[12],
                                 state[13], 
                                 state[14]]))  
-        print(prevAngPos)
+        # print(prevAngPos)
         # angAccel = np.array(([(input[1,0] + self.Iyy*prevAngVel[1,0]*prevAngVel[2,0] - self.Izz*prevAngVel[1,0]*prevAngVel[2,0])/self.Ixx],
         #                      [(input[2,0] - self.Ixx*prevAngVel[0,0]*prevAngVel[2,0] + self.Izz*prevAngVel[0,0]*prevAngVel[2,0])/self.Iyy],
         #                      [(input[3,0] + self.Ixx*prevAngVel[0,0]*prevAngVel[1,0] - self.Iyy*prevAngVel[0,0]*prevAngVel[1,0])/self.Izz]))
-        angAccel = np.array(([(self.Iyy*prevAngVel[1,0]*prevAngVel[2,0] - self.Izz*prevAngVel[1,0]*prevAngVel[2,0])/self.Ixx],
-                             [((-1)*self.Ixx*prevAngVel[0,0]*prevAngVel[2,0] + self.Izz*prevAngVel[0,0]*prevAngVel[2,0])/self.Iyy],
+        angAccel = np.array(([(input[1,0] + self.Iyy*prevAngVel[1,0]*prevAngVel[2,0] - self.Izz*prevAngVel[1,0]*prevAngVel[2,0])/self.Ixx],
+                             [(input[2,0] - self.Ixx*prevAngVel[0,0]*prevAngVel[2,0] + self.Izz*prevAngVel[0,0]*prevAngVel[2,0])/self.Iyy],
                              [(self.Ixx*prevAngVel[0,0]*prevAngVel[1,0] - self.Iyy*prevAngVel[0,0]*prevAngVel[1,0])/self.Izz]))
         angVel = prevAngVel + angAccel*dt
         angPos = prevAngPos + angVel*dt + 0.5*angAccel*pow(dt,2)
-        # print(angPos)
+        print(angVel)
 
         # XYZ position and rate update
         prevLinPos = np.array(([state[0], 
