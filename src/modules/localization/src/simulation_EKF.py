@@ -3,6 +3,7 @@ from __future__ import print_function
 from __future__ import division
 import rospy
 import numpy as np
+from scipy.linalg import block_diag
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Quaternion, Pose
 from sensor_msgs.msg import Imu
@@ -37,9 +38,8 @@ class SimulationEkfStateEstimation(object):
         # initialize the previous X State
         self.previousXm = np.zeros((15,1))
 
-        self.processVariance = 0.05
-        self.measurementVariance = 0.01
-
+        self.processVariance = block_diag(0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05)
+        self.measurementVariance = block_diag(0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01)
         self.firstMeasurementPassed = False
         self.initTimeDelta = 0.01
 
@@ -63,6 +63,7 @@ class SimulationEkfStateEstimation(object):
         # logic to reduce position measurement rate to 10 Hz
         self.positionCallbackRateCount = 0
         self.positionCallbackRate = 10 # every 10th measurement
+        self.positionStdDev = np.array(([0.001, 0.001, 0.001]))
 
     def imu_callback(self, imuMsg):
         """ Callback for the imu input"""
@@ -75,6 +76,9 @@ class SimulationEkfStateEstimation(object):
         # ekf on every 10th measurement 
         self.positionCallbackRateCount = self.positionCallbackRateCount + 1
         if not (self.positionCallbackRateCount % self.positionCallbackRate):
+            poseMsg.position.x = poseMsg.position.x + np.random.normal(0, self.positionStdDev[0])
+            poseMsg.position.y = poseMsg.position.y + np.random.normal(0, self.positionStdDev[1])
+            poseMsg.position.z = poseMsg.position.z + np.random.normal(0, self.positionStdDev[2])
             # update the position estimate but don't publish
             self.pose_ekf_estimation(poseMsg)
 
@@ -180,10 +184,10 @@ class SimulationEkfStateEstimation(object):
         L = np.identity(15)
 
         # process variance matrix
-        V = self.processVariance*np.identity(15)
+        V = self.processVariance
 
         # measurement Variance
-        W = self.measurementVariance*np.identity(3)
+        W = self.measurementVariance[0:3,0:3]
 
         xm = self.ekf_calc(A, V, L, M, W, H, z, dt)
         
@@ -276,10 +280,10 @@ class SimulationEkfStateEstimation(object):
         L = np.identity(15)
 
         # process variance matrix
-        V = self.processVariance*np.identity(15)
+        V = self.processVariance
 
         # measurement Variance
-        W = self.measurementVariance*np.identity(9)
+        W = self.measurementVariance[6:15,6:15]
 
         # ekf calculations
         xm = self.ekf_calc(A, V, L, M, W, H, z, dt)

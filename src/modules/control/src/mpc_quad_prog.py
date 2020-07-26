@@ -99,7 +99,7 @@ class MPCQuadProg(object):
         self.desiredPos = WaypointGeneration.desiredPos
         self.desiredTimes = WaypointGeneration.desiredTimes
 
-        self.mpcHorizon = 3
+        self.mpcHorizon = 2
         # number of inputs
         self.nu = 4
         # number of states
