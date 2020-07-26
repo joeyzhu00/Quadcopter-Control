@@ -69,17 +69,15 @@ class InfDiscreteLQR(object):
         Q = QMult*np.eye(12)
         Q[2][2] = 500/QMult
         Q[8][8] = 10000/QMult
-        # Q[2][2] = 100/QMult
-        # Q[8][8] = 5000/QMult
 
-        # R = 1000*np.array([[1, 0, 0, 0],
-        #                   [0, 5, 0, 0],
-        #                   [0, 0, 5, 0],
-        #                   [0, 0, 0, 0.00001]])
         R = 1000*np.array([[1, 0, 0, 0],
                           [0, 5, 0, 0],
                           [0, 0, 5, 0],
-                          [0, 0, 0, 0.1]])
+                          [0, 0, 0, 0.00001]])
+        # R = 1000*np.array([[1, 0, 0, 0],
+        #                   [0, 5, 0, 0],
+        #                   [0, 0, 5, 0],
+        #                   [0, 0, 0, 0.001]])
         Uinf = linalg.solve_discrete_are(A, B, Q, R, None, None)
         self.dlqrGain = np.dot(np.linalg.inv(R + np.dot(B.T, np.dot(Uinf, B))), np.dot(B.T, np.dot(Uinf, A)))   
 
@@ -91,9 +89,10 @@ class InfDiscreteLQR(object):
         self.desiredPos = WaypointGeneration.desiredPos
         self.desiredTimes = WaypointGeneration.desiredTimes
 
+        self.attitudeControlOnly = 0
         # deadbands [x-pos, y-pos, z-pos, yaw]
         self.waypointDeadband = np.array(([0.3, 0.3, 0.5, 1*self.PI/180]))
-        
+
     def state_update(self, odomInput):
         """ Generate state vector from odometry input"""
         # create state vector
@@ -145,15 +144,24 @@ class InfDiscreteLQR(object):
                              state[11,0] - self.desVel[nearestIdx,3]])) 
         
         # apply deadbands when reaching the final waypoint 
-        if nearestIdx >= np.size(self.timeVec):
-            # x-pos, y-pos, z-pos deadband check
-            for i in range(0,np.size(self.waypointDeadband)-1):
-                if currErr[i] <= self.waypointDeadband[i]:
-                    currErr[i] = 0
+        if nearestIdx == (np.size(self.timeVec)-1):
+            # x-pos and y-pos deadband check
+            if (currErr[0] <= self.waypointDeadband[0]) and (currErr[0] >= (-1)*self.waypointDeadband[0]):
+                currErr[0] = 0
+            if (currErr[1] <= self.waypointDeadband[1]) and (currErr[1] >= (-1)*self.waypointDeadband[1]):
+                currErr[1] = 0
+            if (currErr[2] <= self.waypointDeadband[2]) and (currErr[2] >= (-1)*self.waypointDeadband[2]):
+                currErr[2] = 0
+            # if (currErr[0] == 0) and (currErr[1] == 0) and (currErr[2] == 0):
+            #     self.attitudeControlOnly = 1
             # yaw deadband check
-            if currErr[6] <= self.waypointDeadband[i]:
-                currErr[i] = 0
-
+            if currErr[6] <= self.waypointDeadband[3]:
+                currErr[6] = 0
+        # only do-pos z and yaw control
+        # if self.attitudeControlOnly:
+        #     print('Attitude Control Only State')
+        #     currErr[0] = 0
+        #     currErr[1] = 0
         return currErr
 
     def ctrl_update(self, state):
