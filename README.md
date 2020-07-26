@@ -4,10 +4,9 @@ Testing out different control laws for quadcopter control, currently have the fo
 * PD controller
 * MPC with linear quadratic programming (yaw authority basically nonexistent, needs tuning)
 * minimum jerk trajectory generator 
+* EKF subscribed to rotorS sensors
 
 Using rotorS from ETH-Zurich as simulation environment which can be accessed here: https://github.com/ethz-asl/rotors_simulator.
-
-Development work is done under the quad_adcs folder.
 
 Not really sure how to get `catkin_make` working with the `catkin build` from **rotors_simulator**, so the control code is separated.
 
