@@ -6,6 +6,7 @@ import rosbag
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy import linalg
+from scipy.linalg import block_diag
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Quaternion
 from sensor_msgs.msg import Imu
@@ -56,6 +57,19 @@ class InfDiscreteLQRWithIntegrator(object):
                       [0, dt/Ixx, 0, 0],
                       [0, 0, dt/Iyy, 0],
                       [0, 0, 0, dt/Izz]])
+        # output matrix
+        C = np.array(([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]))
+        # enlarged state matrix with the error accumulation as a state
+        Ag = np.vstack((np.hstack((A, np.zeros((12,8)))), np.hstack((C, np.eye(8)))))
+        # enlarged input matrix with the error accumulation as a state
+        Bg = np.vstack((B, np.zeros((8,4))))
 
         self.equilibriumInput = np.zeros((4,1))
         self.equilibriumInput[0] = m*g
@@ -69,13 +83,32 @@ class InfDiscreteLQRWithIntegrator(object):
         Q = QMult*np.eye(12)
         Q[2][2] = 500/QMult
         Q[8][8] = 10000/QMult
+        # state cost with enlarged state vector
+        Qint = np.eye(8)
+        Qg = block_diag(Q, Qint)
         R = 1000*np.array([[1, 0, 0, 0],
                           [0, 5, 0, 0],
                           [0, 0, 5, 0],
                           [0, 0, 0, 0.00001]])
+        # R = np.array([[1, 0, 0, 0],
+        #               [0, 1, 0, 0],
+        #               [0, 0, 1, 0],
+        #               [0, 0, 0, 0.1]])
+        Uinf = linalg.solve_discrete_are(Ag, Bg, Qg, R, None, None)
+        # gain matrix containing both the lqr gain and the integral gain
+        self.combinedGainMatrix = np.dot(np.linalg.inv(R + np.dot(Bg.T, np.dot(Uinf, Bg))), np.dot(Bg.T, np.dot(Uinf, Ag)))   
+        self.dlqrGain = self.combinedGainMatrix[:,0:12]
+        print('LQR Gain: ')
+        print(self.dlqrGain)
+        print('\n')
+        self.integralGain = self.combinedGainMatrix[:,12:20]
+        print('Integral Gain: ')
+        print(self.integralGain)
+        print('\n')
+        self.previousError = np.zeros((8,1))
 
-        Uinf = linalg.solve_discrete_are(A, B, Q, R, None, None)
-        self.dlqrGain = np.dot(np.linalg.inv(R + np.dot(B.T, np.dot(Uinf, B))), np.dot(B.T, np.dot(Uinf, A)))   
+        # Uinf = linalg.solve_discrete_are(A, B, Q, R, None, None)
+        # self.dlqrGain = np.dot(np.linalg.inv(R + np.dot(B.T, np.dot(Uinf, B))), np.dot(B.T, np.dot(Uinf, A)))   
 
         # time now subtracted by start time
         self.startTime = rospy.get_time()
@@ -116,15 +149,17 @@ class InfDiscreteLQRWithIntegrator(object):
                 state[i] = 0
         self.ctrl_update(state)
 
-    def calc_pos_error(self, state):
+    def calc_error(self, state):
         """ Find the desired state given the trajectory and PD gains and calculate current error"""                                 
+        integralErrFlag = 0
         # calculate the time difference
         # time now subtracted by start time
         currTime = rospy.get_time() - self.startTime
         # find the closest index in timeVec corresponding to the current time
         nearestIdx = np.searchsorted(self.timeVec, currTime)
         if nearestIdx >= np.size(self.timeVec):
-            nearestIdx = np.size(self.timeVec)-1        
+            nearestIdx = np.size(self.timeVec)-1 
+            integralErrFlag = 1       
         # current error
         currErr = np.array(([state[0,0] - self.waypoints[nearestIdx,0],
                              state[1,0] - self.waypoints[nearestIdx,1],
@@ -133,18 +168,25 @@ class InfDiscreteLQRWithIntegrator(object):
                              state[4,0] - self.desVel[nearestIdx,1],
                              state[5,0] - self.desVel[nearestIdx,2],
                              state[8,0] - self.waypoints[nearestIdx,3],
-                             state[11,0] - self.desVel[nearestIdx,3]])) 
-        return currErr
+                             state[11,0] - self.desVel[nearestIdx,3]]))
+        errorAccum = np.reshape(currErr,(8,1)) + self.previousError
+        self.previousError = np.reshape(currErr,(8,1))
+
+        return currErr, errorAccum, integralErrFlag
 
     def ctrl_update(self, state):
         """ Multiply state by Discrete LQR Gain Matrix and then formulate motor speeds"""
-        currErr = self.calc_pos_error(state)
+        currErr, errorAccum, integralErrFlag = self.calc_error(state)
         for i in range(5):
             state[i,0] = currErr[i]
         state[8,0] = currErr[6]
         state[11,0] = currErr[7]
+        
+        if integralErrFlag:
+            desiredInput = (-1)*np.dot(self.dlqrGain, state) + self.equilibriumInput + np.dot(self.integralGain, errorAccum)
+        else:
+            desiredInput = (-1)*np.dot(self.dlqrGain, state) + self.equilibriumInput
 
-        desiredInput = (-1)*np.dot(self.dlqrGain, state) + self.equilibriumInput
         # find the rotor speed for each rotor
         motorSpeeds = Actuators()                
         motorSpeeds.angular_velocities = np.zeros((4,1))

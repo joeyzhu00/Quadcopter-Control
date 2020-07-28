@@ -235,7 +235,6 @@ class SimulationEkfStateEstimation(object):
 
         if self.controlInput[0,0] <= 0.05:
             linAccelInertial[2,0] = 0
-
         # system measurements, stuff linear acceleration into linear velocity state
         z = np.array(([linAccelInertial[0,0]],
                       [linAccelInertial[1,0]],

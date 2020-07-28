@@ -78,6 +78,9 @@ class PDControl(object):
         # generate the waypoints
         WaypointGeneration = WaypointGen()
         self.waypoints, self.desVel, self.desAcc, self.timeVec = WaypointGeneration.waypoint_calculation()
+
+        # deadbands [x-pos, y-pos, z-pos, yaw]
+        self.waypointDeadband = np.array(([0.3, 0.3, 0.5, 1*self.PI/180]))
                                                  
         
     def state_update(self, odomInput):
@@ -147,11 +150,31 @@ class PDControl(object):
         rpyDes = np.array(([(1/self.g)*(desiredLinAcc[0]*np.sin(self.waypoints[nearestIdx,3]) - desiredLinAcc[1]*np.cos(self.waypoints[nearestIdx,3])),
                             (1/self.g)*(desiredLinAcc[0]*np.cos(self.waypoints[nearestIdx,3]) + desiredLinAcc[1]*np.sin(self.waypoints[nearestIdx,3])),
                             self.waypoints[nearestIdx,3]]))
-        # print(rpyDes)
         # RPY error
         rpyErr = np.array(([rpyDes[0] - state[6,0],
                             rpyDes[1] - state[7,0],
                             rpyDes[2] - state[8,0]]))
+        
+        # apply deadbands when reaching the final waypoint 
+        if nearestIdx == (np.size(self.timeVec)-1):
+            # x-pos and y-pos deadband check
+            if (posErr[0] <= self.waypointDeadband[0]) and (posErr[0] >= (-1)*self.waypointDeadband[0]):
+                posErr[0] = 0
+            if (posErr[1] <= self.waypointDeadband[1]) and (posErr[1] >= (-1)*self.waypointDeadband[1]):
+                posErr[1] = 0
+            if (posErr[2] <= self.waypointDeadband[2]) and (posErr[2] >= (-1)*self.waypointDeadband[2]):
+                posErr[2] = 0
+            # if (posErr[0] == 0) and (posErr[1] == 0) and (posErr[2] == 0):
+            #     self.attitudeControlOnly = 1
+            # yaw deadband check
+            if rpyErr[2] <= self.waypointDeadband[3]:
+                rpyErr[2] = 0
+        # only do-pos z and yaw control
+        # if self.attitudeControlOnly:
+        #     print('Attitude Control Only State')
+        #     posErr[0] = 0
+        #     posErr[1] = 0
+
         # RPY Rate error backward difference for roll and pitch
         rpyRateErr = np.array(([(rpyErr[0] - self.prevRPYErr[0])/dt,
                                 (rpyErr[1] - self.prevRPYErr[1])/dt,

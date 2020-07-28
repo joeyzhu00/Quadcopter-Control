@@ -69,7 +69,6 @@ class InfDiscreteLQR(object):
         Q = QMult*np.eye(12)
         Q[2][2] = 500/QMult
         Q[8][8] = 10000/QMult
-
         R = 1000*np.array([[1, 0, 0, 0],
                           [0, 5, 0, 0],
                           [0, 0, 5, 0],
@@ -124,7 +123,7 @@ class InfDiscreteLQR(object):
                 state[i] = 0
         self.ctrl_update(state)
 
-    def calc_pos_error(self, state):
+    def calc_error(self, state):
         """ Find the desired state given the trajectory and PD gains and calculate current error"""                                 
         # calculate the time difference
         # time now subtracted by start time
@@ -166,7 +165,7 @@ class InfDiscreteLQR(object):
 
     def ctrl_update(self, state):
         """ Multiply state by Discrete LQR Gain Matrix and then formulate motor speeds"""
-        currErr = self.calc_pos_error(state)
+        currErr = self.calc_error(state)
         for i in range(5):
             state[i,0] = currErr[i]
         state[8,0] = currErr[6]
