@@ -38,8 +38,9 @@ class SimulationEkfStateEstimation(object):
         # initialize the previous X State
         self.previousXm = np.zeros((15,1))
 
+        # x-pos, y-pos, z-pos, x-vel, y-vel, z-vel, x-acc, y-acc, z-acc, roll, pitch, yaw, roll rate, pitch rate, yaw rate
         self.processVariance = block_diag(0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05)
-        self.measurementVariance = block_diag(0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01)
+        self.measurementVariance = block_diag(0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.05, 0.05, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01)
         self.firstMeasurementPassed = False
         self.initTimeDelta = 0.01
 
