@@ -1,6 +1,7 @@
 # Quadcopter Control
 Testing out different control laws for quadcopter control, currently have the following features:
 * infinite horizon discrete linear quadratic regulator
+* infinite horizon discrete linear quadratic regulator with integral action
 * PD controller
 * MPC with linear quadratic programming (yaw authority basically nonexistent, needs tuning)
 * minimum jerk trajectory generator 
@@ -16,15 +17,20 @@ Open up `waypoint_generation_library.py` and check whether the waypoints hardcod
 Launch the simulation environment (wherever you keep rotorS)
 * $ roslaunch rotors_gazebo mav.launch mav_name:=hummingbird world_name:=basic
 
+**The following launch files include the EKF.**
+
 # Infinite Horizon DLQR
 * /Quadcopter-Control (master) $ source devel/setup.bash
-* /Quadcopter-Control (master) $ rosrun control inf_discrete_lqr.py
+* /Quadcopter-Control (master) $ roslaunch control simulation_inf_lqr.launch
+# Infinite Horizon DLQR With Integral Action
+* /Quadcopter-Control (master) $ source devel/setup.bash
+* /Quadcopter-Control (master) $ roslaunch control simulation_inf_lqr_with_integral.launch
 # PD Control
 * /Quadcopter-Control (master) $ source devel/setup.bash
-* /Quadcopter-Control (master) $ rosrun control pd_control.py
+* /Quadcopter-Control (master) $ roslaunch control simulation_pd_control.launch
 # MPC
 * /Quadcopter-Control (master) $ source devel/setup.bash
-* /Quadcopter-Control (master) $ rosrun control mpc_quad_prog.py
+* /Quadcopter-Control (master) $ roslaunch control simulation_mpc.launch
 
 ## Infinite Horizon Discrete LQR Performance
 Sluggish yaw response, but reasonably quick position convergence. Can probably use more time for tuning gains to get rid of the overshoot and get more of a critically damped response. The plot is with live data with a one second interval represented by symbols (not sure why two of each appear in the legends). Need to tune out steady-state instability that occurs about 20 seconds after reaching the desired "steady-state position". May keep this as a feature as the quadcopter does some complex acrobatics during this unstable phase. Possible limit cycle occurring in the phase plane of the quadcopter that is causing this instability.  
