@@ -61,15 +61,11 @@ class InfDiscreteLQRWithIntegrator(object):
         C = np.array(([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
                       [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
                       [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]))
+                      [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]))
         # enlarged state matrix with the error accumulation as a state
-        Ag = np.vstack((np.hstack((A, np.zeros((12,8)))), np.hstack((C, np.eye(8)))))
+        Ag = np.vstack((np.hstack((A, np.zeros((12,4)))), np.hstack((C, np.eye(4)))))
         # enlarged input matrix with the error accumulation as a state
-        Bg = np.vstack((B, np.zeros((8,4))))
+        Bg = np.vstack((B, np.zeros((4,4))))
 
         self.equilibriumInput = np.zeros((4,1))
         self.equilibriumInput[0] = m*g
@@ -84,7 +80,7 @@ class InfDiscreteLQRWithIntegrator(object):
         Q[2][2] = 500/QMult
         Q[8][8] = 10000/QMult
         # state cost with enlarged state vector
-        Qint = np.eye(8)
+        Qint = 0.5*np.eye(4)
         Qg = block_diag(Q, Qint)
         R = 1000*np.array([[1, 0, 0, 0],
                           [0, 5, 0, 0],
@@ -94,21 +90,24 @@ class InfDiscreteLQRWithIntegrator(object):
         #               [0, 1, 0, 0],
         #               [0, 0, 1, 0],
         #               [0, 0, 0, 0.1]])
-        Uinf = linalg.solve_discrete_are(Ag, Bg, Qg, R, None, None)
+        UinfInt = linalg.solve_discrete_are(Ag, Bg, Qg, R, None, None)
         # gain matrix containing both the lqr gain and the integral gain
-        self.combinedGainMatrix = np.dot(np.linalg.inv(R + np.dot(Bg.T, np.dot(Uinf, Bg))), np.dot(Bg.T, np.dot(Uinf, Ag)))   
-        self.dlqrGain = self.combinedGainMatrix[:,0:12]
-        print('LQR Gain: ')
-        print(self.dlqrGain)
+        self.combinedGainMatrix = np.dot(np.linalg.inv(R + np.dot(Bg.T, np.dot(UinfInt, Bg))), np.dot(Bg.T, np.dot(UinfInt, Ag)))   
+        self.dlqrGainInt = self.combinedGainMatrix[:,0:12]
+        print('LQR Gain With Integrator: ')
+        print(self.dlqrGainInt)
         print('\n')
         self.integralGain = self.combinedGainMatrix[:,12:20]
         print('Integral Gain: ')
         print(self.integralGain)
         print('\n')
-        self.previousError = np.zeros((8,1))
+        self.previousError = np.zeros((4,1))
 
-        # Uinf = linalg.solve_discrete_are(A, B, Q, R, None, None)
-        # self.dlqrGain = np.dot(np.linalg.inv(R + np.dot(B.T, np.dot(Uinf, B))), np.dot(B.T, np.dot(Uinf, A)))   
+        Uinf = linalg.solve_discrete_are(A, B, Q, R, None, None)
+        self.dlqrGain = np.dot(np.linalg.inv(R + np.dot(B.T, np.dot(Uinf, B))), np.dot(B.T, np.dot(Uinf, A)))   
+        print('LQR Gain: ')
+        print(self.dlqrGain)
+        print('\n')
 
         # time now subtracted by start time
         self.startTime = rospy.get_time()
@@ -117,6 +116,10 @@ class InfDiscreteLQRWithIntegrator(object):
         self.waypoints, self.desVel, self.desAcc, self.timeVec = WaypointGeneration.waypoint_calculation()
         self.desiredPos = WaypointGeneration.desiredPos
         self.desiredTimes = WaypointGeneration.desiredTimes
+
+        # deadbands [x-pos, y-pos, z-pos, yaw]
+        self.waypointDeadband = np.array(([0.3, 0.3, 0.5, 3*self.PI/180]))
+        self.waypointEndAchieved = 0
         
     def state_update(self, odomInput):
         """ Generate state vector from odometry input"""
@@ -159,7 +162,7 @@ class InfDiscreteLQRWithIntegrator(object):
         nearestIdx = np.searchsorted(self.timeVec, currTime)
         if nearestIdx >= np.size(self.timeVec):
             nearestIdx = np.size(self.timeVec)-1 
-            integralErrFlag = 1       
+            integralErrFlag = 1 
         # current error
         currErr = np.array(([state[0,0] - self.waypoints[nearestIdx,0],
                              state[1,0] - self.waypoints[nearestIdx,1],
@@ -169,8 +172,42 @@ class InfDiscreteLQRWithIntegrator(object):
                              state[5,0] - self.desVel[nearestIdx,2],
                              state[8,0] - self.waypoints[nearestIdx,3],
                              state[11,0] - self.desVel[nearestIdx,3]]))
-        errorAccum = np.reshape(currErr,(8,1)) + self.previousError
-        self.previousError = np.reshape(currErr,(8,1))
+        # start calculating integral error
+        if not self.waypointEndAchieved:
+            if integralErrFlag:
+                print(integralErrFlag)
+                # apply deadbands when reaching the final waypoint 
+                # x-pos and y-pos deadband check
+                if (currErr[0] <= self.waypointDeadband[0]) and (currErr[0] >= (-1)*self.waypointDeadband[0]):
+                    currErr[0] = 0
+                    self.previousError[0] = 0
+                if (currErr[1] <= self.waypointDeadband[1]) and (currErr[1] >= (-1)*self.waypointDeadband[1]):
+                    currErr[1] = 0
+                    self.previousError[1] = 0
+                if (currErr[2] <= self.waypointDeadband[2]) and (currErr[2] >= (-1)*self.waypointDeadband[2]):
+                    currErr[2] = 0
+                    self.previousError[2] = 0
+                if (currErr[6] <= self.waypointDeadband[3]) and (currErr[6] >= (-1)*self.waypointDeadband[3]):
+                    currErr[6] = 0
+                    self.previousError[3] = 0
+                currWayPointError = np.array(([currErr[0]],
+                                              [currErr[1]],
+                                              [currErr[2]],
+                                              [currErr[6]]))
+                print(currWayPointError)
+                errorAccum = currWayPointError + self.previousError
+                self.previousError = currWayPointError
+                
+                errSum = 0
+                for i in range(0,4):
+                    errSum = errSum + errorAccum[i]
+                if errSum == 0:
+                    integralErrFlag = 0
+                    self.waypointEndAchieved = 1
+            else:
+                errorAccum = np.zeros((4,1))
+        else:
+            errorAccum = np.zeros((4,1))
 
         return currErr, errorAccum, integralErrFlag
 
@@ -182,10 +219,12 @@ class InfDiscreteLQRWithIntegrator(object):
         state[8,0] = currErr[6]
         state[11,0] = currErr[7]
         
-        if integralErrFlag:
-            desiredInput = (-1)*np.dot(self.dlqrGain, state) + self.equilibriumInput + np.dot(self.integralGain, errorAccum)
+        if integralErrFlag and (not self.waypointEndAchieved):
+            desiredInput = (-1)*np.dot(self.dlqrGainInt, state) + self.equilibriumInput + np.dot(self.integralGain, errorAccum)
+            print('dlqr with integrator')
         else:
             desiredInput = (-1)*np.dot(self.dlqrGain, state) + self.equilibriumInput
+            print('dlqr')
 
         # find the rotor speed for each rotor
         motorSpeeds = Actuators()                
@@ -197,11 +236,12 @@ class InfDiscreteLQRWithIntegrator(object):
     
     def dlqr_converter(self):
         """ Subscribe to the estimator """
-        rospy.Subscriber("/hummingbird/ground_truth/odometry", Odometry, self.state_update, queue_size = 1)
+        # rospy.Subscriber("/hummingbird/ground_truth/odometry", Odometry, self.state_update, queue_size = 1)
+        rospy.Subscriber("/localization/odom", Odometry, self.state_update, queue_size = 1)
         rospy.spin()
 
 def main():
-    rospy.init_node("dlqr_node", anonymous = False)
+    rospy.init_node("inf_dlqr_node", anonymous = False)
     dlqrOperator = InfDiscreteLQRWithIntegrator()
 
     try:

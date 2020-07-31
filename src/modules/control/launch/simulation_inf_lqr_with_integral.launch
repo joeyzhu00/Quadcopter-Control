@@ -1,0 +1,8 @@
+<launch>
+    <!-- launch the simulation ekf -->
+    <include file="$(find localization)/launch/simulation_ekf.launch" />
+    <!-- launch the infinite horizon dlqr with integral -->
+    <node type="inf_discrete_lqr_with_integral.py" pkg="control" name="inf_dlqr_node" output="screen">
+    </node>
+
+</launch>

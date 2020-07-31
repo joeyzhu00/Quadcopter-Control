@@ -154,7 +154,7 @@ class InfDiscreteLQR(object):
             # if (currErr[0] == 0) and (currErr[1] == 0) and (currErr[2] == 0):
             #     self.attitudeControlOnly = 1
             # yaw deadband check
-            if currErr[6] <= self.waypointDeadband[3]:
+            if (currErr[6] <= self.waypointDeadband[3]) and (currErr[6] >= (-1)*self.waypointDeadband[3]):
                 currErr[6] = 0
         # only do-pos z and yaw control
         # if self.attitudeControlOnly:
