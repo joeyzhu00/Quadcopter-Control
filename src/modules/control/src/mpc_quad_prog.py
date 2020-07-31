@@ -82,11 +82,10 @@ class MPCQuadProg(object):
         QMult = 1
         self.Q = QMult*np.eye(12)
         self.Q[2][2] = 500/QMult
-        self.Q[8][8] = 10000/QMult
         self.R = 1000*np.array([[1, 0, 0, 0],
                           [0, 5, 0, 0],
                           [0, 0, 5, 0],
-                          [0, 0, 0, 0.00001]])
+                          [0, 0, 0, 1]])
 
         self.Uinf = linalg.solve_discrete_are(self.A, self.B, self.Q, self.R, None, None)
         self.dlqrGain = np.dot(np.linalg.inv(self.R + np.dot(self.B.T, np.dot(self.Uinf, self.B))), np.dot(self.B.T, np.dot(self.Uinf, self.A)))   
@@ -110,12 +109,12 @@ class MPCQuadProg(object):
         # set up the MPC constraints
         D2R = self.PI/180
         minVal, maxVal = self.find_min_max_waypoints()
-        posTolerance = 0.25 # [m]
-        angTolerance = 0.1 # [rad]
-        self.xmin = np.array(([minVal[0]-posTolerance, minVal[1]-posTolerance, minVal[2]-posTolerance, -5, -5, -5, 
-                        -45*D2R, -45*D2R, minVal[3]-angTolerance, -50*D2R, -50*D2R, -50*D2R]))
-        self.xmax = np.array(([maxVal[0]+posTolerance, maxVal[1]+posTolerance, maxVal[2]+posTolerance, 5, 5, 5,
-                        45*D2R, 45*D2R, maxVal[3]+angTolerance, 50*D2R, 50*D2R, 50*D2R]))  
+        posTolerance = 0.5 # [m]
+        angTolerance = 5*D2R # [rad]
+        self.xmin = np.array(([minVal[0]-posTolerance, minVal[1]-posTolerance, minVal[2]-posTolerance, -np.Inf, -np.Inf, -np.Inf, 
+                        -np.Inf, -np.Inf, minVal[3]-angTolerance, -np.Inf, -np.Inf, -np.Inf]))
+        self.xmax = np.array(([maxVal[0]+posTolerance, maxVal[1]+posTolerance, maxVal[2]+posTolerance, np.Inf, np.Inf, np.Inf,
+                        np.Inf, np.Inf, maxVal[3]+angTolerance, np.Inf, np.Inf, np.Inf]))  
         self.umin = np.array(([-self.m*self.g, -0.5, -0.5, -0.5]))
         self.umax = np.array(([1.5*self.m*self.g, 0.5, 0.5, 0.5])) 
 
@@ -224,7 +223,8 @@ class MPCQuadProg(object):
     
     def mpc_converter(self):
         """ Subscribe to the estimator """
-        rospy.Subscriber("/hummingbird/ground_truth/odometry", Odometry, self.state_update, queue_size = 1)
+        # rospy.Subscriber("/hummingbird/ground_truth/odometry", Odometry, self.state_update, queue_size = 1)
+        rospy.Subscriber("/localization/odom", Odometry, self.state_update, queue_size = 1)
         rospy.spin()
 
 def main():
