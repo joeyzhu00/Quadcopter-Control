@@ -80,7 +80,7 @@ class PDControl(object):
         self.waypoints, self.desVel, self.desAcc, self.timeVec = WaypointGeneration.waypoint_calculation()
 
         # deadbands [x-pos, y-pos, z-pos, yaw]
-        self.waypointDeadband = np.array(([0.3, 0.3, 0.5, 1*self.PI/180]))
+        self.waypointDeadband = np.array(([0.3, 0.3, 0.5, 5*self.PI/180]))
                                                  
         
     def state_update(self, odomInput):

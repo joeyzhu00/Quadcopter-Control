@@ -76,14 +76,15 @@ class InfDiscreteLQRWithIntegrator(object):
         QMult = 1
         Q = QMult*np.eye(12)
         Q[2][2] = 500/QMult
-        Q[8][8] = 1000/QMult
+        Q[8][8] = 10000/QMult
         # state cost with enlarged state vector
-        Qint = 0.5*np.eye(2)
+        Qint = np.eye(2)
+        Qint[1][1] = 1
         Qg = block_diag(Q, Qint)
         R = 1000*np.array([[1, 0, 0, 0],
                           [0, 5, 0, 0],
                           [0, 0, 5, 0],
-                          [0, 0, 0, 0.0001]])
+                          [0, 0, 0, 0.000001]])
         # R = np.array([[1, 0, 0, 0],
         #               [0, 1, 0, 0],
         #               [0, 0, 1, 0],
@@ -116,8 +117,10 @@ class InfDiscreteLQRWithIntegrator(object):
         self.desiredTimes = WaypointGeneration.desiredTimes
 
         # deadbands [x-pos, y-pos, z-pos, yaw]
-        self.waypointDeadband = np.array(([0.3, 0.3, 0.5, 3*self.PI/180]))
+        self.waypointDeadband = np.array(([0.5, 0.5, 0.5, 5*self.PI/180]))
         self.waypointEndAchieved = 0
+        # error accumulation limits
+        self.errorAccumLimit = np.array(([0.5, 1*self.PI/180]))
         
     def state_update(self, odomInput):
         """ Generate state vector from odometry input"""
@@ -173,30 +176,42 @@ class InfDiscreteLQRWithIntegrator(object):
         # start calculating integral error
         if not self.waypointEndAchieved:
             if integralErrFlag:
-                print(integralErrFlag)
                 # apply deadbands when reaching the final waypoint 
                 # x-pos and y-pos deadband check
-                # if (currErr[0] <= self.waypointDeadband[0]) and (currErr[0] >= (-1)*self.waypointDeadband[0]):
-                #     currErr[0] = 0
-                #     self.previousError[0] = 0
-                # if (currErr[1] <= self.waypointDeadband[1]) and (currErr[1] >= (-1)*self.waypointDeadband[1]):
-                #     currErr[1] = 0
-                #     self.previousError[1] = 0
-                # if (currErr[2] <= self.waypointDeadband[2]) and (currErr[2] >= (-1)*self.waypointDeadband[2]):
-                #     currErr[2] = 0
-                #     self.previousError[0] = 0
+                if (currErr[0] <= self.waypointDeadband[0]) and (currErr[0] >= (-1)*self.waypointDeadband[0]):
+                    currErr[0] = 0
+                    self.previousError[0] = 0
+                if (currErr[1] <= self.waypointDeadband[1]) and (currErr[1] >= (-1)*self.waypointDeadband[1]):
+                    currErr[1] = 0
+                    self.previousError[1] = 0
+                if (currErr[2] <= self.waypointDeadband[2]) and (currErr[2] >= (-1)*self.waypointDeadband[2]):
+                    currErr[2] = 0
+                    self.previousError[0] = 0
                 if (currErr[6] <= self.waypointDeadband[3]) and (currErr[6] >= (-1)*self.waypointDeadband[3]):
                     currErr[6] = 0
                     self.previousError[1] = 0
                 currWayPointError = np.array(([currErr[2]],
-                                              [currErr[6]]))
-                print(currWayPointError)
+                                              [currErr[6]]))                
+                
                 errorAccum = currWayPointError + self.previousError
                 self.previousError = currWayPointError
                 
+                # error accumulation limiter for z-position
+                if errorAccum[0] >= self.errorAccumLimit[0]:
+                    errorAccum[0] = self.errorAccumLimit[0]
+                elif errorAccum[0] <= (-1)*self.errorAccumLimit[0]:
+                    errorAccum[0] = (-1)*self.errorAccumLimit[0]
+                # error accumulation limiter for yaw angle
+                if errorAccum[1] >= self.errorAccumLimit[1]:
+                    errorAccum[1] = self.errorAccumLimit[1]
+                elif errorAccum[1] <= (-1)*self.errorAccumLimit[1]:
+                    errorAccum[1] = (-1)*self.errorAccumLimit[1]
+                
+                # check on the sum of the error
                 errSum = 0
                 for i in range(0,2):
                     errSum = errSum + errorAccum[i]
+                # if both errors are zero then the integral error flag is set to zero
                 if errSum == 0:
                     integralErrFlag = 0
                     self.waypointEndAchieved = 1

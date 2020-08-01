@@ -5,7 +5,7 @@ import rospy
 import numpy as np
 from scipy.linalg import block_diag
 from nav_msgs.msg import Odometry
-from geometry_msgs.msg import Quaternion, Pose
+from geometry_msgs.msg import Quaternion, Pose, Twist
 from sensor_msgs.msg import Imu
 from tf.transformations import euler_from_quaternion, quaternion_from_euler
 from mav_msgs.msg import Actuators
@@ -65,6 +65,7 @@ class SimulationEkfStateEstimation(object):
         self.positionCallbackRateCount = 0
         self.positionCallbackRate = 10 # every 10th measurement
         self.positionStdDev = np.array(([0.001, 0.001, 0.001]))
+        self.velStdDev = np.array(([0.001, 0.001, 0.001]))
 
     def imu_callback(self, imuMsg):
         """ Callback for the imu input"""
@@ -82,6 +83,16 @@ class SimulationEkfStateEstimation(object):
             poseMsg.position.z = poseMsg.position.z + np.random.normal(0, self.positionStdDev[2])
             # update the position estimate but don't publish
             self.pose_ekf_estimation(poseMsg)
+
+    def vel_callback(self, velMsg):
+        """ Callback for the velocity input"""
+        # TODO: complete the velocity message feedback
+        velLinMsg = Twist()
+        velLinMsg.linear.x = velMsg.twist.twist.linear.x + np.random.normal(0, self.velStdDev[0])
+        velLinMsg.linear.y = velMsg.twist.twist.linear.y + np.random.normal(0, self.velStdDev[1])
+        velLinMsg.linear.z = velMsg.twist.twist.linear.z + np.random.normal(0, self.velStdDev[2])
+        # update the velocity estimate but don't publish
+        self.vel_ekf_estimation(velLinMsg)
 
     def motor_speed_callback(self, motorSpeeds):
         """ Callback for the motor speeds"""
@@ -200,6 +211,67 @@ class SimulationEkfStateEstimation(object):
 
         return self.odom_msg_creation(xm)
 
+    def vel_ekf_estimation(self, velLinMsg):
+        """ Use ekf to create a state estimate when given linear velocity and control input data"""
+        # get the current time
+        currentTime = rospy.get_time()
+
+        # calculate the time delta b/t previous measurement and current measurement
+        if self.firstMeasurementPassed:
+            dt = currentTime - self.previousTime
+        else:
+            dt = self.initTimeDelta
+        if dt == 0.0:
+            dt = 0.01
+
+        # system measurements, stuff linear acceleration into linear velocity state
+        z = np.array(([velLinMsg.linear.x],
+                      [velLinMsg.linear.y],
+                      [velLinMsg.linear.z]))
+
+        # state update matrix
+        A = np.array([[1, 0, 0, dt, 0, 0, 0.5*pow(dt,2), 0, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 1, 0, 0, dt, 0, 0, 0.5*pow(dt,2), 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 1, 0, 0, dt, 0, 0, 0.5*pow(dt,2), 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 1, 0, 0, dt, 0, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 1, 0, 0, dt, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 1, 0, 0, dt, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, self.g, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 1, 0, -self.g, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, dt, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, dt, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, dt],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]])
+                      
+        # measurement matrix
+        H = np.array([[0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]])
+
+        # measurement noise partial derivative matrix
+        M = np.identity(3)
+        # process noise partial derivative matrix
+        L = np.identity(15)
+
+        # process variance matrix
+        V = self.processVariance
+
+        # measurement Variance
+        W = self.measurementVariance[3:6,3:6]
+
+        xm = self.ekf_calc(A, V, L, M, W, H, z, dt)
+        
+        # first pass has been completed, time delta can be updated
+        self.firstMeasurementPassed = True
+
+        # update the previous time
+        self.previousTime = currentTime
+
+        return self.odom_msg_creation(xm)
+
     def imu_ekf_estimation(self, imuMsg):
         """ Use ekf to create a state estimate when given imu and control input data"""
         # convert quat to rpy angles
@@ -230,9 +302,7 @@ class SimulationEkfStateEstimation(object):
                                  [(-1)*imuMsg.linear_acceleration.z]))
         # rotate linear acceleration in body frame into linear acceleration in inertial frame
         linAccelInertial = np.dot(N_R_b, linAccelBody)
-        # simulation doesn't take body kinematics into account, need to cancel out gravity component with input
-        # NOTE: REMOVE THIS FOR ACTUAL EKF
-        linAccelInertial[2,0] = linAccelInertial[2,0] + (self.controlInput[0,0]/self.m)*np.cos(prevPitch)*np.cos(prevRoll)
+        linAccelInertial[2,0] = linAccelInertial[2,0] + self.g
 
         if self.controlInput[0,0] <= 0.05:
             linAccelInertial[2,0] = 0
@@ -344,6 +414,8 @@ class SimulationEkfStateEstimation(object):
         """ Subscribe to the IMU, pose, and motor speed data"""
         rospy.Subscriber("/hummingbird/imu", Imu, self.imu_callback, queue_size = 1)
         rospy.Subscriber("/hummingbird/ground_truth/pose", Pose, self.pose_callback, queue_size = 1)
+        # NOTE: will need to change to a twist message callback when actually doing optical flow, but this will serve as the velocity sensor feedback
+        rospy.Subscriber("/hummingbird/ground_truth/odometry", Odometry, self.vel_callback, queue_size = 1)
         rospy.Subscriber("/hummingbird/motor_speed", Actuators, self.motor_speed_callback, queue_size = 1)
         rospy.spin()
 
