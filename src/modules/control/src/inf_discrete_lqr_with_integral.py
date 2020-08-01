@@ -177,16 +177,19 @@ class InfDiscreteLQRWithIntegrator(object):
         if not self.waypointEndAchieved:
             if integralErrFlag:
                 # apply deadbands when reaching the final waypoint 
-                # x-pos and y-pos deadband check
+                # x-pos deadband check
                 if (currErr[0] <= self.waypointDeadband[0]) and (currErr[0] >= (-1)*self.waypointDeadband[0]):
                     currErr[0] = 0
                     self.previousError[0] = 0
+                # y-pos deadband check
                 if (currErr[1] <= self.waypointDeadband[1]) and (currErr[1] >= (-1)*self.waypointDeadband[1]):
                     currErr[1] = 0
                     self.previousError[1] = 0
+                # z-pos deadband check
                 if (currErr[2] <= self.waypointDeadband[2]) and (currErr[2] >= (-1)*self.waypointDeadband[2]):
                     currErr[2] = 0
                     self.previousError[0] = 0
+                # yaw deadband check
                 if (currErr[6] <= self.waypointDeadband[3]) and (currErr[6] >= (-1)*self.waypointDeadband[3]):
                     currErr[6] = 0
                     self.previousError[1] = 0

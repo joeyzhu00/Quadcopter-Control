@@ -158,16 +158,16 @@ class PDControl(object):
         # apply deadbands when reaching the final waypoint 
         if nearestIdx == (np.size(self.timeVec)-1):
             # x-pos and y-pos deadband check
-            # if (posErr[0] <= self.waypointDeadband[0]) and (posErr[0] >= (-1)*self.waypointDeadband[0]):
-            #     posErr[0] = 0
-            # if (posErr[1] <= self.waypointDeadband[1]) and (posErr[1] >= (-1)*self.waypointDeadband[1]):
-            #     posErr[1] = 0
-            # if (posErr[2] <= self.waypointDeadband[2]) and (posErr[2] >= (-1)*self.waypointDeadband[2]):
-            #     posErr[2] = 0
+            if (posErr[0] <= self.waypointDeadband[0]) and (posErr[0] >= (-1)*self.waypointDeadband[0]):
+                posErr[0] = 0
+            if (posErr[1] <= self.waypointDeadband[1]) and (posErr[1] >= (-1)*self.waypointDeadband[1]):
+                posErr[1] = 0
+            if (posErr[2] <= self.waypointDeadband[2]) and (posErr[2] >= (-1)*self.waypointDeadband[2]):
+                posErr[2] = 0
             # if (posErr[0] == 0) and (posErr[1] == 0) and (posErr[2] == 0):
             #     self.attitudeControlOnly = 1
             # yaw deadband check
-            if rpyErr[2] <= self.waypointDeadband[3]:
+            if (rpyErr[2] <= self.waypointDeadband[3]) and (rpyErr[2] >= (-1)*self.waypointDeadband[3]):
                 rpyErr[2] = 0
         # only do-pos z and yaw control
         # if self.attitudeControlOnly:

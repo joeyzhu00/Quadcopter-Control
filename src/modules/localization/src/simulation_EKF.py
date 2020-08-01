@@ -11,14 +11,13 @@ from tf.transformations import euler_from_quaternion, quaternion_from_euler
 from mav_msgs.msg import Actuators
 
 """
-TODO: Add noise model for the position sensing
-
 NOTE: The simulation IMU does not take the body kinematics into account (control input acceleration will not affect the simulated IMU readings)
 
     Subscribed to
     ----------
     Topic: /hummingbird/imu
            /hummingbird/ground_truth/pose (will be replaced with gps reading in real quad)
+           /hummingbird/ground_truth/odometry
            /hummingbird/motor_speed 
 
     Publishes
@@ -64,8 +63,8 @@ class SimulationEkfStateEstimation(object):
         # logic to reduce position measurement rate to 10 Hz
         self.positionCallbackRateCount = 0
         self.positionCallbackRate = 10 # every 10th measurement
-        self.positionStdDev = np.array(([0.001, 0.001, 0.001]))
-        self.velStdDev = np.array(([0.001, 0.001, 0.001]))
+        self.positionStdDev = np.array(([0.01, 0.01, 0.01]))
+        self.velStdDev = np.array(([0.01, 0.01, 0.01]))
 
     def imu_callback(self, imuMsg):
         """ Callback for the imu input"""

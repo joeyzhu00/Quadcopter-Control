@@ -7,9 +7,11 @@ Testing out different control laws for quadcopter control, currently have the fo
 * minimum jerk trajectory generator 
 * EKF subscribed to rotorS sensors
 
-Using rotorS from ETH-Zurich as simulation environment which can be accessed here: https://github.com/ethz-asl/rotors_simulator.
+Using rotorS from ETH-Zurich as the simulation environment which can be accessed here: https://github.com/ethz-asl/rotors_simulator.
 
 Not really sure how to get `catkin_make` working with the `catkin build` from **rotors_simulator**, so the control code is separated.
+
+**NOTE:** The infinite horizon discrete LQR methods are linearized about a single equilibrium point, so large yaw angles will cause instability due to small angle assumptions causing "unmodeled dynamics" to arise. LQR methods will probably need a camera gimbal deal with the yaw pointing.  
 
 ## Steps to Run Simulation
 Open up `waypoint_generation_library.py` and check whether the waypoints hardcoded in are what you want (eventually this will be part of a launch or YAML file). 
@@ -17,7 +19,7 @@ Open up `waypoint_generation_library.py` and check whether the waypoints hardcod
 Launch the simulation environment (wherever you keep rotorS)
 * $ roslaunch rotors_gazebo mav.launch mav_name:=hummingbird world_name:=basic
 
-**The following launch files include the EKF.**
+**NOTE:** The following launch files include the EKF.
 
 # Infinite Horizon DLQR
 * /Quadcopter-Control (master) $ source devel/setup.bash
@@ -33,7 +35,7 @@ Launch the simulation environment (wherever you keep rotorS)
 * /Quadcopter-Control (master) $ roslaunch control simulation_mpc.launch
 
 ## Infinite Horizon Discrete LQR Performance
-Sluggish yaw response, but reasonably quick position convergence. Can probably use more time for tuning gains to get rid of the overshoot and get more of a critically damped response. The plot is with live data with a one second interval represented by symbols (not sure why two of each appear in the legends). Need to tune out steady-state instability that occurs about 20 seconds after reaching the desired "steady-state position". May keep this as a feature as the quadcopter does some complex acrobatics during this unstable phase. Possible limit cycle occurring in the phase plane of the quadcopter that is causing this instability.  
+Sluggish yaw response, but reasonably quick position convergence. Can probably use more time for tuning gains to get rid of the overshoot and get more of a critically damped response. The plot is with live data with a one second interval represented by symbols (not sure why two of each appear in the legends).   
 
 ![dlqr_step_response](https://user-images.githubusercontent.com/29212589/85929675-9fc94280-b86b-11ea-91a3-cc68ee14d815.png)
 
