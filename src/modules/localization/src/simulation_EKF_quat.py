@@ -33,13 +33,17 @@ class SimulationEkfStateEstimation(object):
         self.ekfPublisher = rospy.Publisher("/localization/odom", Odometry, queue_size = 1)
         # initialize initial state covariance matrix
         self.previousPm = np.identity(16)*0.01
+        self.previousPm[9] = 0.001
+        self.previousPm[10] = 0.001
+        self.previousPm[11] = 0.001
+        self.previousPm[12] = 0.001
 
         # initialize the previous X State
         self.previousXm = np.zeros((16,1))
         self.previousXm[12] = 1
         # x-pos, y-pos, z-pos, x-vel, y-vel, z-vel, x-acc, y-acc, z-acc, qx, qy, qz, qw, roll rate, pitch rate, yaw rate
-        self.processVariance = block_diag(0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.01, 0.01, 0.01, 0.01, 0.05, 0.05, 0.05)
-        self.measurementVariance = block_diag(0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.05, 0.05, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01)
+        self.processVariance = block_diag(0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.001, 0.001, 0.001, 0.001, 0.05, 0.05, 0.05)
+        self.measurementVariance = block_diag(0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.05, 0.05, 0.01, 0.0001, 0.0001, 0.0001, 0.0001, 0.01, 0.01, 0.01)
         self.firstMeasurementPassed = False
         self.initTimeDelta = 0.01
 
@@ -115,16 +119,14 @@ class SimulationEkfStateEstimation(object):
         prevAngVel = np.array(([state[13],
                                 state[14], 
                                 state[15]]))  
-        # angAccel = np.array(([(input[1,0] + self.Iyy*prevAngVel[1,0]*prevAngVel[2,0] - self.Izz*prevAngVel[1,0]*prevAngVel[2,0])/self.Ixx],
-        #                      [(input[2,0] - self.Ixx*prevAngVel[0,0]*prevAngVel[2,0] + self.Izz*prevAngVel[0,0]*prevAngVel[2,0])/self.Iyy],
-        #                      [(input[3,0] + self.Ixx*prevAngVel[0,0]*prevAngVel[1,0] - self.Iyy*prevAngVel[0,0]*prevAngVel[1,0])/self.Izz]))
+        # angAccel = np.array(([(self.Iyy*prevAngVel[1,0]*prevAngVel[2,0] - self.Izz*prevAngVel[1,0]*prevAngVel[2,0])/self.Ixx],
+        #                      [((-1)*self.Ixx*prevAngVel[0,0]*prevAngVel[2,0] + self.Izz*prevAngVel[0,0]*prevAngVel[2,0])/self.Iyy],
+        #                      [(self.Ixx*prevAngVel[0,0]*prevAngVel[1,0] - self.Iyy*prevAngVel[0,0]*prevAngVel[1,0])/self.Izz]))
         angAccel = np.array(([(input[1,0] + self.Iyy*prevAngVel[1,0]*prevAngVel[0,0] - self.Izz*prevAngVel[1,0]*prevAngVel[2,0])/self.Ixx],
                              [(input[2,0] - self.Ixx*prevAngVel[0,0]*prevAngVel[2,0] + self.Izz*prevAngVel[0,0]*prevAngVel[2,0])/self.Iyy],
                              [(self.Ixx*prevAngVel[0,0]*prevAngVel[1,0] - self.Iyy*prevAngVel[0,0]*prevAngVel[1,0])/self.Izz]))
         angVel = prevAngVel + angAccel*dt
-        # assemble omega matrix which is [0, -w';
-        #                                 w, wx] where wx is a skew symmetric matrix
-        
+
         qdot = 0.5*np.array(([prevQuat[3,0]*angVel[0,0] + prevQuat[1,0]*angVel[2,0] - prevQuat[2,0]*angVel[1,0]],
                              [prevQuat[3,0]*angVel[1,0] - prevQuat[0,0]*angVel[2,0] + prevQuat[2,0]*angVel[0,0]],
                              [prevQuat[3,0]*angVel[2,0] + prevQuat[0,0]*angVel[1,0] - prevQuat[1,0]*angVel[0,0]],
@@ -133,9 +135,9 @@ class SimulationEkfStateEstimation(object):
         quat = prevQuat + qdot*dt
         if np.linalg.norm(quat) > 1:
             quat = quat/np.linalg.norm(quat)
-        # print(quat)
-        # quat = np.array(([quat[0,0], quat[1,0], quat[2,0], quat[3,0]]))
         
+        print('Prior Quaternion: \n', quat)
+        print('\n')
         # XYZ position and rate update
         prevLinPos = np.array(([state[0], 
                                 state[1], 
@@ -412,7 +414,8 @@ class SimulationEkfStateEstimation(object):
             xm[11] = quat[2] 
             xm[12] = quat[3]
         self.previousXm = xm
-
+        print('Posterior Quaternion: \n', quat)
+        print('\n')
         # posterior state update
         Pm = np.dot(np.identity(16) - np.dot(K, H), Pp)
         self.previousPm = Pm

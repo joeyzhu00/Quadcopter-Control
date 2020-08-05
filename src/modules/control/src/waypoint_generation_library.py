@@ -22,7 +22,7 @@ class WaypointGen(object):
         #                             [3, 6, 10, 0],
         #                             [3, 6, 2, 0]])
         self.desiredPos = np.array([[0, 0, 0, 0],                                       
-                                    [3, 6, 10, 0]])
+                                    [3, 6, 10, PI/4]])
         # in the order of [x_vel, y_vel, z_vel, yaw_rate] in [m/s, m/s, m/s, rad/s]
         self.desiredVel = np.array([[0, 0, 0, 0],
                                     [0, 0, 0, 0]])
