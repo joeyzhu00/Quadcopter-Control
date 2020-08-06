@@ -32,18 +32,13 @@ class SimulationEkfStateEstimation(object):
     def __init__(self):
         self.ekfPublisher = rospy.Publisher("/localization/odom", Odometry, queue_size = 1)
         # initialize initial state covariance matrix
-        self.previousPm = np.identity(16)*0.01
-        self.previousPm[9] = 0.001
-        self.previousPm[10] = 0.001
-        self.previousPm[11] = 0.001
-        self.previousPm[12] = 0.001
+        self.previousPm = np.identity(15)*0.01
 
         # initialize the previous X State
-        self.previousXm = np.zeros((16,1))
-        self.previousXm[12] = 1
-        # x-pos, y-pos, z-pos, x-vel, y-vel, z-vel, x-acc, y-acc, z-acc, qx, qy, qz, qw, roll rate, pitch rate, yaw rate
-        self.processVariance = block_diag(0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.001, 0.001, 0.001, 0.001, 0.05, 0.05, 0.05)
-        self.measurementVariance = block_diag(0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.05, 0.05, 0.01, 0.0001, 0.0001, 0.0001, 0.0001, 0.01, 0.01, 0.01)
+        self.previousXm = np.zeros((15,1))
+        # x-pos, y-pos, z-pos, x-vel, y-vel, z-vel, x-acc, y-acc, z-acc, qx, qy, qz, roll rate, pitch rate, yaw rate
+        self.processVariance = block_diag(0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.001, 0.001, 0.001, 0.05, 0.05, 0.05)
+        self.measurementVariance = block_diag(0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.05, 0.05, 0.01, 0.0001, 0.0001, 0.0001, 0.01, 0.01, 0.01)
         self.firstMeasurementPassed = False
         self.initTimeDelta = 0.01
 
@@ -108,17 +103,18 @@ class SimulationEkfStateEstimation(object):
 
     def quad_nonlinear_eom(self, state, input, dt):
         """ Function for nonlinear equations of motion of quadcopter """
+        qw = pow(1 - pow(state[9],2) - pow(state[10],2) - pow(state[11],2), 0.5)
         # RPY position and rate update
         prevQuat = np.array(([state[9], 
                               state[10], 
                               state[11],
-                              state[12]]))
+                              qw]))
         if np.linalg.norm(prevQuat) > 1:
             prevQuat = prevQuat/np.linalg.norm(prevQuat)
 
-        prevAngVel = np.array(([state[13],
-                                state[14], 
-                                state[15]]))  
+        prevAngVel = np.array(([state[12],
+                                state[13], 
+                                state[14]]))  
         # angAccel = np.array(([(self.Iyy*prevAngVel[1,0]*prevAngVel[2,0] - self.Izz*prevAngVel[1,0]*prevAngVel[2,0])/self.Ixx],
         #                      [((-1)*self.Ixx*prevAngVel[0,0]*prevAngVel[2,0] + self.Izz*prevAngVel[0,0]*prevAngVel[2,0])/self.Iyy],
         #                      [(self.Ixx*prevAngVel[0,0]*prevAngVel[1,0] - self.Iyy*prevAngVel[0,0]*prevAngVel[1,0])/self.Izz]))
@@ -136,8 +132,7 @@ class SimulationEkfStateEstimation(object):
         if np.linalg.norm(quat) > 1:
             quat = quat/np.linalg.norm(quat)
         
-        print('Prior Quaternion: \n', quat)
-        print('\n')
+        quatVecElements = np.array(([quat[0], quat[1], quat[2]]))
         # XYZ position and rate update
         prevLinPos = np.array(([state[0], 
                                 state[1], 
@@ -161,7 +156,7 @@ class SimulationEkfStateEstimation(object):
         linAccel = gravityComponent + (input[0,0]/self.m)*rotMatThirdCol
         linVel = prevLinVel + linAccel*dt
         linPos = prevLinPos + linVel*dt + 0.5*linAccel*pow(dt,2)
-        nonLinState = np.vstack((linPos, linVel, linAccel, quat, angVel))
+        nonLinState = np.vstack((linPos, linVel, linAccel, quatVecElements, angVel))
 
         return nonLinState
 
@@ -184,32 +179,31 @@ class SimulationEkfStateEstimation(object):
                       [poseMsg.position.z]))
 
         # state update matrix
-        A = np.array([[1, 0, 0, dt, 0, 0, 0.5*pow(dt,2), 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                      [0, 1, 0, 0, dt, 0, 0, 0.5*pow(dt,2), 0, 0, 0, 0, 0, 0, 0, 0],
-                      [0, 0, 1, 0, 0, dt, 0, 0, 0.5*pow(dt,2), 0, 0, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 1, 0, 0, dt, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 1, 0, 0, dt, 0, 0, 0, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 0, 1, 0, 0, dt, 0, 0, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2*self.g, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 1, 0, -2*self.g, 0, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0.5*dt, 0, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0.5*dt, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0.5*dt],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]])
+        A = np.array([[1, 0, 0, dt, 0, 0, 0.5*pow(dt,2), 0, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 1, 0, 0, dt, 0, 0, 0.5*pow(dt,2), 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 1, 0, 0, dt, 0, 0, 0.5*pow(dt,2), 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 1, 0, 0, dt, 0, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 1, 0, 0, dt, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 1, 0, 0, dt, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2*self.g, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 1, 0, -2*self.g, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0.5*dt, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0.5*dt, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0.5*dt],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]])
                       
         # measurement matrix
-        H = np.array([[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                      [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                      [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]])
+        H = np.array([[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]])
 
         # measurement noise partial derivative matrix
         M = np.identity(3)
         # process noise partial derivative matrix
-        L = np.identity(16)
+        L = np.identity(15)
 
         # process variance matrix
         V = self.processVariance
@@ -246,31 +240,30 @@ class SimulationEkfStateEstimation(object):
                       [velLinMsg.linear.z]))
 
         # state update matrix
-        A = np.array([[1, 0, 0, dt, 0, 0, 0.5*pow(dt,2), 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                      [0, 1, 0, 0, dt, 0, 0, 0.5*pow(dt,2), 0, 0, 0, 0, 0, 0, 0, 0],
-                      [0, 0, 1, 0, 0, dt, 0, 0, 0.5*pow(dt,2), 0, 0, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 1, 0, 0, dt, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 1, 0, 0, dt, 0, 0, 0, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 0, 1, 0, 0, dt, 0, 0, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2*self.g, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 1, 0, -2*self.g, 0, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0.5*dt, 0, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0.5*dt, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0.5*dt],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]])
+        A = np.array([[1, 0, 0, dt, 0, 0, 0.5*pow(dt,2), 0, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 1, 0, 0, dt, 0, 0, 0.5*pow(dt,2), 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 1, 0, 0, dt, 0, 0, 0.5*pow(dt,2), 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 1, 0, 0, dt, 0, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 1, 0, 0, dt, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 1, 0, 0, dt, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2*self.g, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 1, 0, -2*self.g, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0.5*dt, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0.5*dt, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0.5*dt],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]])
         # measurement matrix
-        H = np.array([[0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]])
+        H = np.array([[0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]])
 
         # measurement noise partial derivative matrix
         M = np.identity(3)
         # process noise partial derivative matrix
-        L = np.identity(16)
+        L = np.identity(15)
 
         # process variance matrix
         V = self.processVariance
@@ -307,7 +300,7 @@ class SimulationEkfStateEstimation(object):
         qx = self.previousXm[9,0]
         qy = self.previousXm[10,0]
         qz = self.previousXm[11,0]
-        qw = self.previousXm[12,0]
+        qw = pow(1 - pow(self.previousXm[9,0],2) - pow(self.previousXm[10,0],2) - pow(self.previousXm[11,0],2), 0.5)
 
         # if qw <= 0:
         #     qw = (-1)*qw
@@ -333,50 +326,47 @@ class SimulationEkfStateEstimation(object):
                       [imuMsg.orientation.x],
                       [imuMsg.orientation.y],
                       [imuMsg.orientation.z],
-                      [imuMsg.orientation.w],
                       [imuMsg.angular_velocity.x],
                       [imuMsg.angular_velocity.y],
                       [imuMsg.angular_velocity.z]))        
 
         # state update matrix
-        A = np.array([[1, 0, 0, dt, 0, 0, 0.5*pow(dt,2), 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                      [0, 1, 0, 0, dt, 0, 0, 0.5*pow(dt,2), 0, 0, 0, 0, 0, 0, 0, 0],
-                      [0, 0, 1, 0, 0, dt, 0, 0, 0.5*pow(dt,2), 0, 0, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 1, 0, 0, dt, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 1, 0, 0, dt, 0, 0, 0, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 0, 1, 0, 0, dt, 0, 0, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2*self.g, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 1, 0, -2*self.g, 0, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0.5*dt, 0, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0.5*dt, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0.5*dt],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]])
+        A = np.array([[1, 0, 0, dt, 0, 0, 0.5*pow(dt,2), 0, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 1, 0, 0, dt, 0, 0, 0.5*pow(dt,2), 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 1, 0, 0, dt, 0, 0, 0.5*pow(dt,2), 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 1, 0, 0, dt, 0, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 1, 0, 0, dt, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 1, 0, 0, dt, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2*self.g, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 1, 0, -2*self.g, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0.5*dt, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0.5*dt, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0.5*dt],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]])
         # measurement matrix
-        H = np.array([[0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]])
+        H = np.array([[0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]])
         # measurement noise partial derivative matrix
-        M = np.identity(10)
+        M = np.identity(9)
 
         # process noise partial derivative matrix
-        L = np.identity(16)
+        L = np.identity(15)
 
         # process variance matrix
         V = self.processVariance
 
         # measurement Variance
-        W = self.measurementVariance[6:16,6:16]
+        W = self.measurementVariance[6:15,6:15]
 
         # ekf calculations
         xm = self.ekf_calc(A, V, L, M, W, H, z, dt)
@@ -399,25 +389,13 @@ class SimulationEkfStateEstimation(object):
 
         # kalman gain
         K = np.dot(Pp, np.dot(np.transpose(H), np.linalg.inv(np.dot(H, np.dot(Pp, np.transpose(H))) + np.dot(M, np.dot(W, np.transpose(M))))))
+        
         # state matrix update
         xm = xp + np.dot(K, (z-np.dot(H, xp)))
-
-        # only use positive qw
-        if xm[12] < 0:
-            xm[12] = (-1)*xm[12]
-        quat = np.array(([xm[9], xm[10], xm[11], xm[12]]))
-        if np.linalg.norm(quat) > 1:
-            quat = quat/np.linalg.norm(quat)
-        else:
-            xm[9] = quat[0]
-            xm[10] = quat[1]
-            xm[11] = quat[2] 
-            xm[12] = quat[3]
         self.previousXm = xm
-        print('Posterior Quaternion: \n', quat)
-        print('\n')
+
         # posterior state update
-        Pm = np.dot(np.identity(16) - np.dot(K, H), Pp)
+        Pm = np.dot(np.identity(15) - np.dot(K, H), Pp)
         self.previousPm = Pm
 
         return xm
@@ -440,12 +418,12 @@ class SimulationEkfStateEstimation(object):
         createdOdomMsg.pose.pose.orientation.x = xm[9]
         createdOdomMsg.pose.pose.orientation.y = xm[10]
         createdOdomMsg.pose.pose.orientation.z = xm[11]
-        createdOdomMsg.pose.pose.orientation.w = xm[12]
+        createdOdomMsg.pose.pose.orientation.w = pow(1 - pow(xm[9],2) - pow(xm[10],2) - pow(xm[11],2), 0.5)
 
         # angular velocity
-        createdOdomMsg.twist.twist.angular.x = xm[13]
-        createdOdomMsg.twist.twist.angular.y = xm[14]
-        createdOdomMsg.twist.twist.angular.z = xm[15]        
+        createdOdomMsg.twist.twist.angular.x = xm[12]
+        createdOdomMsg.twist.twist.angular.y = xm[13]
+        createdOdomMsg.twist.twist.angular.z = xm[14]        
         
         return createdOdomMsg
 
