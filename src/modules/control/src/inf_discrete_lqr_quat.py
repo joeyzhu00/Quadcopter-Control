@@ -11,6 +11,7 @@ from geometry_msgs.msg import Quaternion
 from sensor_msgs.msg import Imu
 from mav_msgs.msg import Actuators
 from waypoint_generation_library import WaypointGen 
+from quaternion_math_library import QuatMath
 
 """ NOTE: Quaternion operations are referenced from Chapter 1 of Spacecraft Dynamics by Kane, Levinson, and Likins
           qw is not a part of the state due to lack of controllability"""
@@ -117,39 +118,6 @@ class InfDiscreteLQR(object):
                 state[i] = 0
         self.ctrl_update(state, odomInput.pose.pose.orientation.w)
 
-    def euler_to_quaternion(self, r, p, y):
-        """ Function to convert euler angles to quaternion"""
-        # assemble direction cosine matrix corresponding to 1-2-3 rotation
-        a_DCM_b = np.array(([np.cos(y)*np.cos(p), np.cos(y)*np.sin(p)*np.sin(r) - np.sin(y)*np.cos(r), np.cos(y)*np.sin(p)*np.cos(r) + np.sin(r)*np.sin(y)],
-                            [np.sin(y)*np.cos(p), np.sin(y)*np.sin(p)*np.sin(r) + np.cos(r)*np.cos(y), np.sin(y)*np.sin(p)*np.cos(r) - np.cos(y)*np.sin(r)],
-                            [(-1)*np.sin(p), np.cos(p)*np.sin(r), np.cos(p)*np.cos(r)]))
-        qw = 0.5*pow(1 + a_DCM_b[0,0] + a_DCM_b[1,1] + a_DCM_b[2,2], 0.5)
-        qx = (a_DCM_b[2,1] - a_DCM_b[1,2])/(4*qw)
-        qy = (a_DCM_b[0,2] - a_DCM_b[2,0])/(4*qw)
-        qz = (a_DCM_b[1,0] - a_DCM_b[0,1])/(4*qw)
-        a_q_b = np.array(([qx],
-                          [qy],
-                          [qz],
-                          [qw]))
-        return a_q_b
-
-    def quat_inverse(self, a_q_b):
-        """ Function to calculate inverse of quaternion"""
-        b_q_a = (-1)*a_q_b
-        # scalar term is always positive with current convention
-        b_q_a[3,0] = a_q_b[3,0]
-        return b_q_a
-
-    def quat_mult(self, a_q_b, b_q_c):
-        """ Function to multiply two quaternions together"""
-        # intermediate matrix for matrix multiplication
-        intermediateMat = np.array(([a_q_b[3,0], (-1)*a_q_b[2,0], a_q_b[1,0], a_q_b[0,0]],
-                                    [a_q_b[2,0], a_q_b[3,0], (-1)*a_q_b[0,0], a_q_b[1,0]],
-                                    [(-1)*a_q_b[1,0], a_q_b[0,0], a_q_b[3,0], a_q_b[2,0]],
-                                    [(-1)*a_q_b[0,0], (-1)*a_q_b[1,0], (-1)*a_q_b[2,0], a_q_b[3,0]]))
-        a_q_c = np.dot(intermediateMat, b_q_c)
-        return a_q_c
-
     def calc_error(self, state, qw):
         """ Find the desired state given the trajectory and PD gains and calculate current error"""                                 
         # calculate the time difference
@@ -161,14 +129,14 @@ class InfDiscreteLQR(object):
             nearestIdx = np.size(self.timeVec)-1        
         
         # desired quaternion (desired attitude in inertial frame)
-        des_q_N = self.euler_to_quaternion(0, 0, self.waypoints[nearestIdx,3])
+        des_q_N = QuatMath().euler_to_quaternion(0, 0, self.waypoints[nearestIdx,3])
         # current quaternion (current attitude in inertial frame)
         b_q_N = np.array(([state[6,0]],
                           [state[7,0]],
                           [state[8,0]],
                           [qw]))
         # body attitude in desired frame
-        b_q_des = self.quat_mult(b_q_N, self.quat_inverse(des_q_N))
+        b_q_des = QuatMath().quat_mult(b_q_N, QuatMath().quat_inverse(des_q_N))
         # current error
         currErr = np.array(([state[0,0] - self.waypoints[nearestIdx,0],
                              state[1,0] - self.waypoints[nearestIdx,1],

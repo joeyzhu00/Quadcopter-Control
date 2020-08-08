@@ -33,31 +33,34 @@ class InfDiscreteLQR(object):
         dt = 0.01   # [sec]
         L = 0.17    # [m]
         # state update matrix
-        A = np.array([[1, 0, 0, dt, 0, 0, 0, 0, 0, 0, 0, 0],
-                      [0, 1, 0, 0, dt, 0, 0, 0, 0, 0, 0, 0],
-                      [0, 0, 1, 0, 0, dt, 0, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 1, 0, 0, 0, 2*dt*g, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 1, 0, -2*dt*g, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 0, 0, 1, 0, 0, dt, 0, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, dt, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, dt],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]])
+        self.A = np.array([[1, 0, 0, dt, 0, 0, 0, 0, 0, 0, 0, 0],
+                            [0, 1, 0, 0, dt, 0, 0, 0, 0, 0, 0, 0],
+                            [0, 0, 1, 0, 0, dt, 0, 0, 0, 0, 0, 0],
+                            [0, 0, 0, 1, 0, 0, 0, 2*dt*g, 0, 0, 0, 0],
+                            [0, 0, 0, 0, 1, 0, -2*dt*g, 0, 0, 0, 0, 0],
+                            [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0],
+                            [0, 0, 0, 0, 0, 0, 1, 0, 0, dt, 0, 0],
+                            [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, dt, 0],
+                            [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, dt],
+                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0],
+                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
+                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]])
         # input matrix
-        B = np.array([[0, 0, 0, 0],
-                      [0, 0, 0, 0],
-                      [0, 0, 0, 0],
-                      [0, 0, 0, 0],
-                      [0, 0, 0, 0],
-                      [dt/m, 0, 0, 0],
-                      [0, 0, 0, 0],
-                      [0, 0, 0, 0],
-                      [0, 0, 0, 0],
-                      [0, dt/Ixx, 0, 0],
-                      [0, 0, dt/Iyy, 0],
-                      [0, 0, 0, dt/Izz]])
+        self.B = np.array([[0, 0, 0, 0],
+                           [0, 0, 0, 0],
+                           [0, 0, 0, 0],
+                           [0, 0, 0, 0],
+                           [0, 0, 0, 0],
+                           [dt/m, 0, 0, 0],
+                           [0, 0, 0, 0],
+                           [0, 0, 0, 0],
+                           [0, 0, 0, 0],
+                           [0, dt/Ixx, 0, 0],
+                           [0, 0, dt/Iyy, 0],
+                           [0, 0, 0, dt/Izz]])
+        # output matrix
+        self.C = np.array(([0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                           [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]))
 
         self.equilibriumInput = np.zeros((4,1))
         self.equilibriumInput[0] = m*g
@@ -68,16 +71,15 @@ class InfDiscreteLQR(object):
                                                [self.momentConstant, (-1)*self.momentConstant, self.momentConstant, (-1)*self.momentConstant]])
 
         QMult = 1
-        Q = QMult*np.eye(12)
-        Q[2][2] = 500/QMult
-        Q[8][8] = 10000/QMult
-        R = 1000*np.array([[1, 0, 0, 0],
-                          [0, 5, 0, 0],
-                          [0, 0, 5, 0],
-                          [0, 0, 0, 0.00001]])
-        Uinf = linalg.solve_discrete_are(A, B, Q, R, None, None)
-        self.dlqrGain = np.dot(np.linalg.inv(R + np.dot(B.T, np.dot(Uinf, B))), np.dot(B.T, np.dot(Uinf, A)))   
-
+        self.Q = QMult*np.eye(12)
+        self.Q[2][2] = 500/QMult
+        self.Q[8][8] = 10000/QMult
+        self.R = 1000*np.array([[1, 0, 0, 0],
+                                [0, 5, 0, 0],
+                                [0, 0, 5, 0],
+                                [0, 0, 0, 0.00001]])
+        self.Uinf = linalg.solve_discrete_are(self.A, self.B, self.Q, self.R, None, None)
+        self.trackingHorizon = 3
         # time now subtracted by start time
         self.startTime = rospy.get_time()
         # generate the waypoints
@@ -106,9 +108,6 @@ class InfDiscreteLQR(object):
         state[6] = odomInput.pose.pose.orientation.x
         state[7] = odomInput.pose.pose.orientation.y
         state[8] = odomInput.pose.pose.orientation.z
-        # qw is not a state due to lack of controllability
-        qw = odomInput.pose.pose.orientation.w
-        print(qw)
         # angular rate
         state[9] = odomInput.twist.twist.angular.x
         state[10] = odomInput.twist.twist.angular.y
@@ -118,40 +117,7 @@ class InfDiscreteLQR(object):
         for i in range(0, len(state)):
             if np.isnan(state[i]):
                 state[i] = 0
-        self.ctrl_update(state, qw)
-
-    def euler_to_quaternion(self, r, p, y):
-        """ Function to convert euler angles to quaternion"""
-        # assemble direction cosine matrix corresponding to 1-2-3 rotation
-        a_DCM_b = np.array(([np.cos(y)*np.cos(p), np.cos(y)*np.sin(p)*np.sin(r) - np.sin(y)*np.cos(r), np.cos(y)*np.sin(p)*np.cos(r) + np.sin(r)*np.sin(y)],
-                            [np.sin(y)*np.cos(p), np.sin(y)*np.sin(p)*np.sin(r) + np.cos(r)*np.cos(y), np.sin(y)*np.sin(p)*np.cos(r) - np.cos(y)*np.sin(r)],
-                            [(-1)*np.sin(p), np.cos(p)*np.sin(r), np.cos(p)*np.cos(r)]))
-        qw = 0.5*pow(1 + a_DCM_b[0,0] + a_DCM_b[1,1] + a_DCM_b[2,2], 0.5)
-        qx = (a_DCM_b[2,1] - a_DCM_b[1,2])/(4*qw)
-        qy = (a_DCM_b[0,2] - a_DCM_b[2,0])/(4*qw)
-        qz = (a_DCM_b[1,0] - a_DCM_b[0,1])/(4*qw)
-        a_q_b = np.array(([qx],
-                          [qy],
-                          [qz],
-                          [qw]))
-        return a_q_b
-
-    def quat_inverse(self, a_q_b):
-        """ Function to calculate inverse of quaternion"""
-        b_q_a = (-1)*a_q_b
-        # scalar term is always positive with current convention
-        b_q_a[3,0] = a_q_b[3,0]
-        return b_q_a
-
-    def quat_mult(self, a_q_b, b_q_c):
-        """ Function to multiply two quaternions together"""
-        # intermediate matrix for matrix multiplication
-        intermediateMat = np.array(([a_q_b[3,0], (-1)*a_q_b[2,0], a_q_b[1,0], a_q_b[0,0]],
-                                    [a_q_b[2,0], a_q_b[3,0], (-1)*a_q_b[0,0], a_q_b[1,0]],
-                                    [(-1)*a_q_b[1,0], a_q_b[0,0], a_q_b[3,0], a_q_b[2,0]],
-                                    [(-1)*a_q_b[0,0], (-1)*a_q_b[1,0], (-1)*a_q_b[2,0], a_q_b[3,0]]))
-        a_q_c = np.dot(intermediateMat, b_q_c)
-        return a_q_c
+        self.ctrl_update(state, odomInput.pose.pose.orientation.w)
 
     def calc_error(self, state, qw):
         """ Find the desired state given the trajectory and PD gains and calculate current error"""                                 
@@ -164,15 +130,14 @@ class InfDiscreteLQR(object):
             nearestIdx = np.size(self.timeVec)-1        
         
         # desired quaternion (desired attitude in inertial frame)
-        des_q_N = self.euler_to_quaternion(0, 0, self.waypoints[nearestIdx,3])
-        print(des_q_N)
+        des_q_N = QuatMath().euler_to_quaternion(0, 0, self.waypoints[nearestIdx,3])
         # current quaternion (current attitude in inertial frame)
         b_q_N = np.array(([state[6,0]],
                           [state[7,0]],
                           [state[8,0]],
                           [qw]))
         # body attitude in desired frame
-        b_q_des = self.quat_mult(b_q_N, self.quat_inverse(des_q_N))
+        b_q_des = QuatMath().quat_mult(b_q_N, QuatMath().quat_inverse(des_q_N))
         # current error
         currErr = np.array(([state[0,0] - self.waypoints[nearestIdx,0],
                              state[1,0] - self.waypoints[nearestIdx,1],
@@ -182,8 +147,6 @@ class InfDiscreteLQR(object):
                              state[5,0] - self.desVel[nearestIdx,2],
                              b_q_des[2,0],
                              state[11,0] - self.desVel[nearestIdx,3]])) 
-        
-        print(b_q_des)
         
         # apply deadbands when reaching the final waypoint 
         if nearestIdx == (np.size(self.timeVec)-1):
