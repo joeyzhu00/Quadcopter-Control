@@ -58,7 +58,7 @@ class InfDiscreteLQR(object):
                            [0, dt/Ixx, 0, 0],
                            [0, 0, dt/Iyy, 0],
                            [0, 0, 0, dt/Izz]])
-        # output matrix
+        # output matrix, tracking portion only done to z and yaw
         self.C = np.array(([0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
                            [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]))
 
@@ -168,16 +168,26 @@ class InfDiscreteLQR(object):
         #     print('Attitude Control Only State')
         #     currErr[0] = 0
         #     currErr[1] = 0
-        return currErr
+        yd = np.zeros((self.trackingHorizon, 2))
+        for i in range(0, self.trackingHorizon):
+            indexSum = nearestIdx+i
+            if indexSum >= np.size(self.timeVec):
+                indexSum = nearestIdx-1                
+            yd[i,0] = self.waypoints[indexSum,2]
+            # convert waypoint to quaternion
+            des_q_N = QuatMath().euler_to_quaternion(0, 0, self.waypoints[indexSum,3])
+            yd[i,1] = des_q_N[2]
+                
+        return currErr, yd
 
     def ctrl_update(self, state, qw):
         """ Multiply state by Discrete LQR Gain Matrix and then formulate motor speeds"""
-        currErr = self.calc_error(state, qw)
+        currErr, yd = self.calc_error(state, qw)
         for i in range(5):
             state[i,0] = currErr[i]
         state[8,0] = currErr[6]
         state[11,0] = currErr[7]
-
+        # for i in range(self.trackingHorizon, -1, -1):
         desiredInput = (-1)*np.dot(self.dlqrGain, state) + self.equilibriumInput
         # find the rotor speed for each rotor
         motorSpeeds = Actuators()                
