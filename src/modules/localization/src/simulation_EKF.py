@@ -39,7 +39,7 @@ class SimulationEkfStateEstimation(object):
 
         # x-pos, y-pos, z-pos, x-vel, y-vel, z-vel, x-acc, y-acc, z-acc, roll, pitch, yaw, roll rate, pitch rate, yaw rate
         self.processVariance = block_diag(0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05)
-        self.measurementVariance = block_diag(0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.05, 0.05, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01)
+        self.measurementVariance = block_diag(0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.05, 0.05, 0.01, 0.001, 0.001, 0.001, 0.01, 0.01, 0.01)
         self.firstMeasurementPassed = False
         self.initTimeDelta = 0.01
 
@@ -63,13 +63,42 @@ class SimulationEkfStateEstimation(object):
         # logic to reduce position measurement rate to 10 Hz
         self.positionCallbackRateCount = 0
         self.positionCallbackRate = 10 # every 10th measurement
+        self.imuNoise = np.array(([0.001, 0.001, 0.001]))
         self.positionStdDev = np.array(([0.01, 0.01, 0.01]))
         self.velStdDev = np.array(([0.01, 0.01, 0.01]))
 
+    def euler_to_quaternion(self, r, p, y):
+        """ Function to convert euler angles to quaternion"""
+        # assemble direction cosine matrix corresponding to 1-2-3 rotation
+        a_DCM_b = np.array(([np.cos(y)*np.cos(p), np.cos(y)*np.sin(p)*np.sin(r) - np.sin(y)*np.cos(r), np.cos(y)*np.sin(p)*np.cos(r) + np.sin(r)*np.sin(y)],
+                            [np.sin(y)*np.cos(p), np.sin(y)*np.sin(p)*np.sin(r) + np.cos(r)*np.cos(y), np.sin(y)*np.sin(p)*np.cos(r) - np.cos(y)*np.sin(r)],
+                            [(-1)*np.sin(p), np.cos(p)*np.sin(r), np.cos(p)*np.cos(r)]))
+        qw = 0.5*pow(1 + a_DCM_b[0,0] + a_DCM_b[1,1] + a_DCM_b[2,2], 0.5)
+        qx = (a_DCM_b[2,1] - a_DCM_b[1,2])/(4*qw)
+        qy = (a_DCM_b[0,2] - a_DCM_b[2,0])/(4*qw)
+        qz = (a_DCM_b[1,0] - a_DCM_b[0,1])/(4*qw)
+        a_q_b = np.array(([qx],
+                          [qy],
+                          [qz],
+                          [qw]))
+        return a_q_b
+
     def imu_callback(self, imuMsg):
         """ Callback for the imu input"""
+        # convert quaternion into euler angles
+        (imuRoll, imuPitch, imuYaw) = euler_from_quaternion([imuMsg.orientation.x, imuMsg.orientation.y, imuMsg.orientation.z, imuMsg.orientation.w])
+        imuRoll = imuRoll + np.random.normal(0, self.imuNoise[0])        
+        imuPitch = imuPitch + np.random.normal(0, self.imuNoise[1])
+        imuYaw = imuYaw + np.random.normal(0, self.imuNoise[2])
+        # convert back to quaternion
+        quat = self.euler_to_quaternion(imuRoll, imuPitch, imuYaw)
+        imuMsg.orientation.x = quat[0,0]
+        imuMsg.orientation.y = quat[1,0]
+        imuMsg.orientation.z = quat[2,0]
+        imuMsg.orientation.w = quat[3,0]
+
         imuEstimate = self.imu_ekf_estimation(imuMsg)
-        # print(self.previousXm[11])
+        
         self.ekfPublisher.publish(imuEstimate)
     
     def pose_callback(self, poseMsg):
