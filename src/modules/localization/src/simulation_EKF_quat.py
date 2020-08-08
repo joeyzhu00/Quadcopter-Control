@@ -3,6 +3,7 @@ from __future__ import print_function
 from __future__ import division
 import rospy
 import numpy as np
+import warnings
 from scipy.linalg import block_diag
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Quaternion, Pose, Twist
@@ -62,13 +63,41 @@ class SimulationEkfStateEstimation(object):
         # logic to reduce position measurement rate to 10 Hz
         self.positionCallbackRateCount = 0
         self.positionCallbackRate = 10 # every 10th measurement
+        self.imuNoise = np.array(([0.001, 0.001, 0.001]))
         self.positionStdDev = np.array(([0.01, 0.01, 0.01]))
         self.velStdDev = np.array(([0.01, 0.01, 0.01]))
 
+    def calc_qw_check_norm(self, qx, qy, qz):
+        """ Calculate scalar component of quaternion and check norm and normalize if norm is greater than one"""
+        # turn warnings into errors
+        warnings.filterwarnings("error")
+        try:
+            qw = pow(1 - pow(qx,2) - pow(qy,2) - pow(qz,2), 0.5)
+        except:
+            qw = 0
+            print('sqrt of negative value attempted')
+        quat = np.array(([float(qx), float(qy), float(qz), float(qw)]))
+        # check the norm
+        if np.linalg.norm(quat) > 1:
+            quat = quat / np.linalg.norm(quat)
+        return quat[0], quat[1], quat[2], quat[3]
+
     def imu_callback(self, imuMsg):
         """ Callback for the imu input"""
-        imuEstimate = self.imu_ekf_estimation(imuMsg)
-        # print(self.previousXm[11])
+        imuMsg.orientation.x = imuMsg.orientation.x + np.random.normal(0, self.imuNoise[0])
+        imuMsg.orientation.y = imuMsg.orientation.y + np.random.normal(0, self.imuNoise[1])
+        imuMsg.orientation.z = imuMsg.orientation.z + np.random.normal(0, self.imuNoise[2])
+        imuMsg.orientation.x, imuMsg.orientation.y, imuMsg.orientation.z, imuMsg.orientation.w = self.calc_qw_check_norm(imuMsg.orientation.x, imuMsg.orientation.y, imuMsg.orientation.z)
+        
+        # quat = np.array(([imuMsg.orientation.x, imuMsg.orientation.y, imuMsg.orientation.z, imuMsg.orientation.w]))
+        # if np.linalg.norm(quat) > 1:
+        #     quat = quat / np.linalg.norm(quat)
+        #     imuMsg.orientation.x = quat[0]
+        #     imuMsg.orientation.y = quat[1]
+        #     imuMsg.orientation.z = quat[2]
+        #     imuMsg.orientation.w = quat[3] 
+        
+        imuEstimate = self.imu_ekf_estimation(imuMsg)        
         self.ekfPublisher.publish(imuEstimate)
     
     def pose_callback(self, poseMsg):
@@ -103,15 +132,12 @@ class SimulationEkfStateEstimation(object):
 
     def quad_nonlinear_eom(self, state, input, dt):
         """ Function for nonlinear equations of motion of quadcopter """
-        qw = pow(1 - pow(state[9],2) - pow(state[10],2) - pow(state[11],2), 0.5)
-        # RPY position and rate update
-        prevQuat = np.array(([state[9], 
-                              state[10], 
-                              state[11],
-                              qw]))
-        if np.linalg.norm(prevQuat) > 1:
-            prevQuat = prevQuat/np.linalg.norm(prevQuat)
-
+        qx, qy, qz, qw = self.calc_qw_check_norm(state[9], state[10], state[11])
+        # # RPY position and rate update
+        prevQuat = np.array(([qx], 
+                             [qy], 
+                             [qz],
+                             [qw]))
         prevAngVel = np.array(([state[12],
                                 state[13], 
                                 state[14]]))  
@@ -129,10 +155,9 @@ class SimulationEkfStateEstimation(object):
                              [(-1)*prevQuat[0,0]*angVel[0,0] - prevQuat[1,0]*angVel[1,0] - prevQuat[2,0]*angVel[2,0]]))
         # NOTE: add qddot*dt^2 in the future 
         quat = prevQuat + qdot*dt
-        if np.linalg.norm(quat) > 1:
-            quat = quat/np.linalg.norm(quat)
-        
-        quatVecElements = np.array(([quat[0], quat[1], quat[2]]))
+
+        qx, qy, qz, qw = self.calc_qw_check_norm(quat[0], quat[1], quat[2])
+
         # XYZ position and rate update
         prevLinPos = np.array(([state[0], 
                                 state[1], 
@@ -156,7 +181,7 @@ class SimulationEkfStateEstimation(object):
         linAccel = gravityComponent + (input[0,0]/self.m)*rotMatThirdCol
         linVel = prevLinVel + linAccel*dt
         linPos = prevLinPos + linVel*dt + 0.5*linAccel*pow(dt,2)
-        nonLinState = np.vstack((linPos, linVel, linAccel, quatVecElements, angVel))
+        nonLinState = np.vstack((linPos, linVel, linAccel, qx, qy, qz, angVel))
 
         return nonLinState
 
@@ -283,9 +308,6 @@ class SimulationEkfStateEstimation(object):
 
     def imu_ekf_estimation(self, imuMsg):
         """ Use ekf to create a state estimate when given imu and control input data"""
-        # convert quat to rpy angles
-        # (imuRoll, imuPitch, imuYaw) = euler_from_quaternion([imuMsg.orientation.x, imuMsg.orientation.y, imuMsg.orientation.z, imuMsg.orientation.w])
-        # print(imuYaw)
         # get the current time
         currentTime = rospy.get_time()
 
@@ -297,13 +319,7 @@ class SimulationEkfStateEstimation(object):
         if dt == 0.0:
             dt = 0.01
         # rotate the acceleration measurements to inertial frame 
-        qx = self.previousXm[9,0]
-        qy = self.previousXm[10,0]
-        qz = self.previousXm[11,0]
-        qw = pow(1 - pow(self.previousXm[9,0],2) - pow(self.previousXm[10,0],2) - pow(self.previousXm[11,0],2), 0.5)
-
-        # if qw <= 0:
-        #     qw = (-1)*qw
+        qx, qy, qz, qw = self.calc_qw_check_norm(self.previousXm[9,0], self.previousXm[10,0], self.previousXm[11,0])
 
         # body in inertial frame 1-2-3 rotation
         N_R_b = np.array(([1 - 2*pow(qy,2) - 2*pow(qz,2), 2*(qx*qy - qw*qz), 2*(qw*qy + qx*qz)],
@@ -392,6 +408,10 @@ class SimulationEkfStateEstimation(object):
         
         # state matrix update
         xm = xp + np.dot(K, (z-np.dot(H, xp)))
+        qx, qy, qz, qw = self.calc_qw_check_norm(xm[9], xm[10], xm[11])
+        xm[9] = qx
+        xm[10] = qy
+        xm[11] = qz 
         self.previousXm = xm
 
         # posterior state update
@@ -418,8 +438,7 @@ class SimulationEkfStateEstimation(object):
         createdOdomMsg.pose.pose.orientation.x = xm[9]
         createdOdomMsg.pose.pose.orientation.y = xm[10]
         createdOdomMsg.pose.pose.orientation.z = xm[11]
-        createdOdomMsg.pose.pose.orientation.w = pow(1 - pow(xm[9],2) - pow(xm[10],2) - pow(xm[11],2), 0.5)
-
+        qx, qy, qz, createdOdomMsg.pose.pose.orientation.w = self.calc_qw_check_norm(xm[9], xm[10], xm[11])
         # angular velocity
         createdOdomMsg.twist.twist.angular.x = xm[12]
         createdOdomMsg.twist.twist.angular.y = xm[13]
