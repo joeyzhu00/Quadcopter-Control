@@ -16,6 +16,7 @@ from quaternion_math_library import QuatMath
 """ NOTE: Quaternion operations are referenced from Chapter 1 of Spacecraft Dynamics by Kane, Levinson, and Likins
           qw is not a part of the state due to lack of controllability"""
 
+""" TODO: Fix equations, something is wrong with the dimensions and need to figure out whether C is supposed to be enlarged"""
 class InfDiscreteLQR(object):
     """ Takes IMU and position data and publishes actuator commands based off an infinite horizon discrete LQR control law"""
     def __init__(self):
@@ -90,7 +91,7 @@ class InfDiscreteLQR(object):
                                 [0, 0, 5, 0],
                                 [0, 0, 0, 0.00001]])
         self.Uinf = linalg.solve_discrete_are(self.A, self.B, self.Q, self.R, None, None)
-        self.trackingHorizon = 3
+        self.trackingHorizon = 5
         # time now subtracted by start time
         self.startTime = rospy.get_time()
         # generate the waypoints
@@ -179,15 +180,15 @@ class InfDiscreteLQR(object):
         #     print('Attitude Control Only State')
         #     currErr[0] = 0
         #     currErr[1] = 0
-        yd = np.zeros((self.trackingHorizon, 2))
-        for i in range(0, self.trackingHorizon):
+        yd = np.zeros((12, self.trackingHorizon+1))
+        for i in range(0, self.trackingHorizon+1):
             indexSum = nearestIdx+i
             if indexSum >= np.size(self.timeVec):
-                indexSum = nearestIdx-1                
-            yd[i,0] = self.waypoints[indexSum,2]
+                indexSum = nearestIdx-1   
+            yd[2,i] = self.waypoints[indexSum,2]
             # convert waypoint to quaternion
             des_q_N = QuatMath().euler_to_quaternion(0, 0, self.waypoints[indexSum,3])
-            yd[i,1] = des_q_N[2]
+            yd[8,i] = des_q_N[2]
                 
         return currErr, yd
 
@@ -198,15 +199,29 @@ class InfDiscreteLQR(object):
             state[i,0] = currErr[i]
         state[8,0] = currErr[6]
         state[11,0] = currErr[7]
-
+   
         P = np.zeros((12,12,self.trackingHorizon+1))
+        b = np.zeros((12,1,self.trackingHorizon+1))
+        # P[:,:,self.trackingHorizon] = np.dot(self.C.T, np.dot(self.Uinf, self.C))
         P[:,:,self.trackingHorizon] = self.Uinf
+        # b[:,:,self.trackingHorizon] = np.dot(-yd[:,self.trackingHorizon].T, np.dot(self.Uinf, self.C))
+        ydFinal = np.array(([yd[:,self.trackingHorizon]]))
+        b[:,:,self.trackingHorizon] = np.dot(np.dot(self.Uinf, self.C), (-1)*ydFinal.T)
         dlqrGainList = np.zeros((4,12,self.trackingHorizon))
         for k in range(self.trackingHorizon, 0, -1):
-            P[:,:,k-1] = np.dot(self.C.T, np.dot(self.Q, self.C)) + np.dot(self.A.T, np.dot(P[:,:,k], self.A)) - np.dot(self.A.T, np.dot(P[:,:,k], np.dot(self.B, np.dot(np.linalg.inv(self.R + np.dot(self.B.T, np.dot(P[:,:,k], self.B))), np.dot(self.B.T, np.dot(P[:,:,k], self.A))))))            
+            # P[:,:,k-1] = np.dot(self.C.T, np.dot(self.Q, self.C)) + np.dot(self.A.T, np.dot(P[:,:,k], self.A)) - np.dot(self.A.T, np.dot(P[:,:,k], np.dot(self.B, np.dot(np.linalg.inv(self.R + np.dot(self.B.T, np.dot(P[:,:,k], self.B))), np.dot(self.B.T, np.dot(P[:,:,k], self.A))))))
+            P[:,:,k-1] = self.Q + np.dot(self.A.T, np.dot(P[:,:,k], self.A)) - np.dot(self.A.T, np.dot(P[:,:,k], np.dot(self.B, np.dot(np.linalg.inv(self.R + np.dot(self.B.T, np.dot(P[:,:,k], self.B))), np.dot(self.B.T, np.dot(P[:,:,k], self.A))))))
+            ydCurr = np.array(([yd[:,k]]))
+            b[:,:,k-1] = np.dot(np.dot(self.Q, self.C), (-1)*ydCurr.T) + np.dot(self.A - np.dot(self.B, np.dot(np.linalg.inv(self.R + np.dot(self.B.T, np.dot(P[:,:,k], self.B))), np.dot(self.B.T, np.dot(P[:,:,k], self.A)))), b[:,:,k])
+            # b[:,:,k-1] = np.dot((-1)*yd[:,k], np.dot(self.Q, self.C)) + np.dot(b[:,:,k], self.A - np.dot(self.B, np.dot(np.linalg.inv(self.R + np.dot(self.B.T, np.dot(P[:,:,k], self.B))), np.dot(self.B.T, np.dot(P[:,:,k], self.A)))))
             dlqrGainList[:,:,k-1] = np.dot(np.linalg.inv(self.R + np.dot(self.B.T, np.dot(P[:,:,k], self.B))), np.dot(self.B.T, np.dot(P[:,:,k], self.A)))
 
-        desiredInput = (-1)*np.dot(self.dlqrGain, state) + self.equilibriumInput
+        # get the feedforward gain component 
+        feedforwardGain = np.dot(np.linalg.inv(self.R + np.dot(self.B.T, np.dot(P[:,:,1], self.B))), np.dot(self.B.T, b[:,:,1].T))
+        print(np.shape(feedforwardGain))
+        # state feedback component, feedforward component, equilibrium component
+        # desiredInput = (-1)*np.dot(dlqrGainList[:,:,0], state) - feedforwardGain + self.equilibriumInput
+        desiredInput = (-1)*np.dot(dlqrGainList[:,:,0], state) + self.equilibriumInput
         # find the rotor speed for each rotor
         motorSpeeds = Actuators()                
         motorSpeeds.angular_velocities = np.zeros((4,1))
