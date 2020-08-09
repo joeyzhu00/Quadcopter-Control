@@ -16,7 +16,7 @@ from quaternion_math_library import QuatMath
 """ NOTE: Quaternion operations are referenced from Chapter 1 of Spacecraft Dynamics by Kane, Levinson, and Likins
           qw is not a part of the state due to lack of controllability"""
 
-class InfDiscreteLQR(object):
+class DiscreteLQR(object):
     """ Takes IMU and position data and publishes actuator commands based off an infinite horizon discrete LQR control law"""
     def __init__(self):
         self.dlqrPublisher = rospy.Publisher("/hummingbird/command/motor_speed", Actuators, queue_size = 1)
@@ -59,19 +59,6 @@ class InfDiscreteLQR(object):
                            [0, dt/Ixx, 0, 0],
                            [0, 0, dt/Iyy, 0],
                            [0, 0, 0, dt/Izz]])
-        # enlarged output matrix, tracking portion only done to z and yaw
-        self.C = np.array(([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                           [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                           [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                           [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                           [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                           [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                           [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                           [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                           [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0],
-                           [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                           [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                           [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]))
 
         self.equilibriumInput = np.zeros((4,1))
         self.equilibriumInput[0] = m*g
@@ -89,8 +76,9 @@ class InfDiscreteLQR(object):
                                 [0, 5, 0, 0],
                                 [0, 0, 5, 0],
                                 [0, 0, 0, 0.00001]])
+        # terminal cost
         self.Uinf = linalg.solve_discrete_are(self.A, self.B, self.Q, self.R, None, None)
-        self.trackingHorizon = 3
+        self.trackingHorizon = 5
         # time now subtracted by start time
         self.startTime = rospy.get_time()
         # generate the waypoints
@@ -179,21 +167,12 @@ class InfDiscreteLQR(object):
         #     print('Attitude Control Only State')
         #     currErr[0] = 0
         #     currErr[1] = 0
-        yd = np.zeros((self.trackingHorizon, 2))
-        for i in range(0, self.trackingHorizon):
-            indexSum = nearestIdx+i
-            if indexSum >= np.size(self.timeVec):
-                indexSum = nearestIdx-1                
-            yd[i,0] = self.waypoints[indexSum,2]
-            # convert waypoint to quaternion
-            des_q_N = QuatMath().euler_to_quaternion(0, 0, self.waypoints[indexSum,3])
-            yd[i,1] = des_q_N[2]
                 
-        return currErr, yd
+        return currErr
 
     def ctrl_update(self, state, qw):
         """ Multiply state by Discrete LQR Gain Matrix and then formulate motor speeds"""
-        currErr, yd = self.calc_error(state, qw)
+        currErr = self.calc_error(state, qw)
         for i in range(5):
             state[i,0] = currErr[i]
         state[8,0] = currErr[6]
@@ -203,10 +182,11 @@ class InfDiscreteLQR(object):
         P[:,:,self.trackingHorizon] = self.Uinf
         dlqrGainList = np.zeros((4,12,self.trackingHorizon))
         for k in range(self.trackingHorizon, 0, -1):
-            P[:,:,k-1] = np.dot(self.C.T, np.dot(self.Q, self.C)) + np.dot(self.A.T, np.dot(P[:,:,k], self.A)) - np.dot(self.A.T, np.dot(P[:,:,k], np.dot(self.B, np.dot(np.linalg.inv(self.R + np.dot(self.B.T, np.dot(P[:,:,k], self.B))), np.dot(self.B.T, np.dot(P[:,:,k], self.A))))))            
+            P[:,:,k-1] = self.Q + np.dot(self.A.T, np.dot(P[:,:,k], self.A)) - np.dot(self.A.T, np.dot(P[:,:,k], np.dot(self.B, np.dot(np.linalg.inv(self.R + np.dot(self.B.T, np.dot(P[:,:,k], self.B))), np.dot(self.B.T, np.dot(P[:,:,k], self.A))))))
             dlqrGainList[:,:,k-1] = np.dot(np.linalg.inv(self.R + np.dot(self.B.T, np.dot(P[:,:,k], self.B))), np.dot(self.B.T, np.dot(P[:,:,k], self.A)))
-
-        desiredInput = (-1)*np.dot(self.dlqrGain, state) + self.equilibriumInput
+        # use the first gain
+        dlqrGain = dlqrGainList[:,:,0]
+        desiredInput = (-1)*np.dot(dlqrGain, state) + self.equilibriumInput
         # find the rotor speed for each rotor
         motorSpeeds = Actuators()                
         motorSpeeds.angular_velocities = np.zeros((4,1))
@@ -222,8 +202,8 @@ class InfDiscreteLQR(object):
         rospy.spin()
 
 def main():
-    rospy.init_node("tracking_dlqr_node", anonymous = False)
-    dlqrOperator = InfDiscreteLQR()
+    rospy.init_node("dlqr_node", anonymous = False)
+    dlqrOperator = DiscreteLQR()
 
     try:
         dlqrOperator.dlqr_converter()

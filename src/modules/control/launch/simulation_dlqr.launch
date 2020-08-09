@@ -1,0 +1,8 @@
+<launch>
+    <!-- launch the simulation ekf -->
+    <include file="$(find localization)/launch/simulation_ekf.launch" />
+    <!-- launch the infinite horizon dlqr -->
+    <node type="discrete_lqr.py" pkg="control" name="dlqr_node" output="screen">
+    </node>
+
+</launch>
