@@ -1,5 +1,6 @@
 # Quadcopter Control
 Testing out different control laws for quadcopter control, currently have the following features:
+* finite horizon discrete linear quadratic regulator
 * infinite horizon discrete linear quadratic regulator
 * infinite horizon discrete linear quadratic regulator with integral action
 * PD controller
@@ -53,3 +54,6 @@ To get intermediate velocity and acceleration targets between the desired waypoi
 ![Minimum Jerk Waypoints](https://user-images.githubusercontent.com/29212589/87103039-b6c34980-c208-11ea-8db5-8807edf11a69.png)
 
 ![Desired Kinematics](https://user-images.githubusercontent.com/29212589/87103018-a3b07980-c208-11ea-9ca5-609c0b0d52f8.png)
+
+## Single Waypoint With Finite Horizon Discrete LQR
+![quadcopter_single_waypoint](https://user-images.githubusercontent.com/29212589/90966308-f3c86000-e485-11ea-9282-9bfe9f907583.gif)
