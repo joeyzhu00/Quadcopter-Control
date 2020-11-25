@@ -9,7 +9,20 @@ Testing out different control laws for quadcopter control, currently have the fo
 * EKF subscribed to rotorS sensors
 
 Using rotorS from ETH-Zurich as the simulation environment which can be accessed here: https://github.com/ethz-asl/rotors_simulator.
-
+## Installing Minimum Version of rotors_simulator
+```
+$ mkdir -p ~/catkin_ws/src
+$ cd ~/catkin_ws/src
+$ catkin_init_workspace  # initialize your catkin workspace
+$ wstool init
+$ wget https://raw.githubusercontent.com/ethz-asl/rotors_simulator/master/rotors_minimal.rosinstall
+$ wstool merge rotors_hil.rosinstall
+$ wstool update
+$ cd ~/catkin_ws/
+$ catkin build
+$ echo "source ~/catkin_ws/devel/setup.bash" >> ~/.bashrc
+$ source ~/.bashrc
+```
 Not really sure how to get `catkin_make` working with the `catkin build` from **rotors_simulator**, so the control code is separated.
 
 **NOTE:** The infinite horizon discrete LQR methods are linearized about a single equilibrium point, so large yaw angles will cause instability due to small angle assumptions causing "unmodeled dynamics" to arise. LQR methods will probably need a camera gimbal deal with the yaw pointing.  
@@ -23,17 +36,25 @@ Launch the simulation environment (wherever you keep rotorS)
 **NOTE:** The following launch files include the EKF.
 
 # Infinite Horizon DLQR
-* /Quadcopter-Control (master) $ source devel/setup.bash
-* /Quadcopter-Control (master) $ roslaunch control simulation_inf_lqr.launch
+```
+/Quadcopter-Control (master) $ source devel/setup.bash
+/Quadcopter-Control (master) $ roslaunch control simulation_inf_lqr.launch
+```
 # Infinite Horizon DLQR With Integral Action
-* /Quadcopter-Control (master) $ source devel/setup.bash
-* /Quadcopter-Control (master) $ roslaunch control simulation_inf_lqr_with_integral.launch
+```
+/Quadcopter-Control (master) $ source devel/setup.bash
+/Quadcopter-Control (master) $ roslaunch control simulation_inf_lqr_with_integral.launch
+```
 # PD Control
-* /Quadcopter-Control (master) $ source devel/setup.bash
-* /Quadcopter-Control (master) $ roslaunch control simulation_pd_control.launch
+```
+/Quadcopter-Control (master) $ source devel/setup.bash
+/Quadcopter-Control (master) $ roslaunch control simulation_pd_control.launch
+```
 # MPC
-* /Quadcopter-Control (master) $ source devel/setup.bash
-* /Quadcopter-Control (master) $ roslaunch control simulation_mpc.launch
+```
+/Quadcopter-Control (master) $ source devel/setup.bash
+/Quadcopter-Control (master) $ roslaunch control simulation_mpc.launch
+```
 
 ## Infinite Horizon Discrete LQR Performance
 Sluggish yaw response, but reasonably quick position convergence. Can probably use more time for tuning gains to get rid of the overshoot and get more of a critically damped response. The plot is with live data with a one second interval represented by symbols (not sure why two of each appear in the legends).   
